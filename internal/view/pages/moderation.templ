@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"strings"
+
 	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
@@ -48,6 +50,7 @@ templ PlayersFleetTable(p view.Page, players []FleetPlayer, search string, probl
 						<th class={ view.Th }>Name</th><th class={ view.Th }>Server</th><th class={ view.Th }>Team</th>
 						<th class={ view.Th + " text-right" }>Score</th><th class={ view.Th + " text-right" }>Ping</th>
 						<th class={ view.Th }>Played</th>
+						<th class={ view.Th }>Client</th>
 						if p.Can("admin") {
 							<th class={ view.Th }>Address · hardware id</th>
 						}
@@ -67,6 +70,7 @@ templ PlayersFleetTable(p view.Page, players []FleetPlayer, search string, probl
 								}
 							</td>
 							<td class={ view.Td + " text-muted" }>{ view.Uptime(timeOf(pl.Joined*1000), p.Now) }</td>
+							<td class={ view.Td }>@ClientCell(p, pl.Client)</td>
 							if p.Can("admin") {
 								<td class={ view.Td + " text-xs text-muted" }>{ pl.Address } <span class="text-faint">{ view.Short(pl.HWID, 12) }</span></td>
 							}
@@ -179,5 +183,24 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 				</div>
 			}
 		}
+	}
+}
+
+// ClientCell is a player's game as it told the server: its build, a badge
+// for a game made from another repository than the fleet's (a fork) and one
+// for its mods; its label, repository and mods on hover.
+templ ClientCell(p view.Page, c *serverapi.ClientBuild) {
+	if c == nil {
+		<span class="text-faint" title="Its game does not tell its build (an older one)">—</span>
+	} else {
+		<span class="inline-flex flex-wrap items-center gap-1 whitespace-nowrap" title={ clientTitle(c) }>
+			<span class="tabular-nums">{ clientBuildLabel(c) }</span>
+			if c.Repository != "" && p.Repository != "" && !strings.EqualFold(c.Repository, p.Repository) {
+				@parts.Badge(view.Warn, "fork")
+			}
+			if len(c.Mods) > 0 {
+				@parts.Badge(view.Info, view.Count(len(c.Mods), "mod", "mods"))
+			}
+		</span>
 	}
 }

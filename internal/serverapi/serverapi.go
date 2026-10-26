@@ -351,6 +351,22 @@ type Player struct {
 	Muted   bool   `json:"muted"`
 	Address string `json:"address,omitempty"`
 	HWID    string `json:"hwid,omitempty"`
+	// its machine's build, as its game tells the host (nil from a game that
+	// does not: a build before the message)
+	Client *ClientBuild `json:"client"`
+}
+
+// ClientBuild is a player's game as it tells the server: its build number
+// (0: one CI did not number), configuration, label, the GitHub repository it
+// is made from (owner/name; "" if not known) and the mods it plays ("folder
+// version", in the load order). What a player's game says, which a changed
+// build can make anything.
+type ClientBuild struct {
+	Build      int64    `json:"build"`
+	Flavor     string   `json:"flavor"`
+	Version    string   `json:"version"`
+	Repository string   `json:"repository"`
+	Mods       []string `json:"mods"`
 }
 
 // Players asks GET /api/players.

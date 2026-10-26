@@ -45,8 +45,11 @@ type Page struct {
 	Live bool
 	// the path, for the navigation
 	Path string
-	Now  time.Time
-	Zone *time.Location
+	// the game's official repository (FLEET_RELEASE_REPOSITORY): a player's
+	// game made from another is marked a fork
+	Repository string
+	Now        time.Time
+	Zone       *time.Location
 }
 
 // Can tells whether the page's user has a role.

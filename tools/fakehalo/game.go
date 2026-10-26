@@ -316,7 +316,25 @@ func (g *game) playerJSON(p *player, role string) map[string]any {
 	if g.addresses(role) {
 		out["address"], out["hwid"] = p.Address, p.HWID
 	}
+	if options.capable {
+		out["client"] = clientOf(p.Machine)
+	}
 	return out
+}
+
+// clientOf is a scripted player's game as it tells the server
+// (server_status.c's client): the project's build, one in two with a mod,
+// one in three made from a fork.
+func clientOf(machine int) map[string]any {
+	repository, mods := "OpenCommunityEdition/OpenCE", []string{}
+	if machine%2 == 1 {
+		mods = []string{"trollface 1.0"}
+	}
+	if machine%3 == 0 {
+		repository = "someone/OpenCE"
+	}
+	return map[string]any{"build": 282, "flavor": "release", "version": "OpenCE Linux | build 282 (release)",
+		"repository": repository, "mods": mods}
 }
 
 func (g *game) teams() bool {

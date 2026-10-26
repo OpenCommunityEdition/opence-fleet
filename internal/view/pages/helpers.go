@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
 )
 
 func timeOf(ms int64) time.Time { return time.UnixMilli(ms) }
@@ -30,4 +32,30 @@ func scores(text string) string {
 		parts[i] = fmt.Sprint(n)
 	}
 	return strings.Join(parts, "–")
+}
+
+// clientBuildLabel is a player's game's build in a word: "build 282", or a
+// local build.
+func clientBuildLabel(c *serverapi.ClientBuild) string {
+	if c.Build > 0 {
+		return "build " + strconv.FormatInt(c.Build, 10)
+	}
+	return "local build"
+}
+
+// clientTitle is what a player's game told of itself, a line each: its
+// label, the repository it is made from, its mods.
+func clientTitle(c *serverapi.ClientBuild) string {
+	lines := []string{c.Version}
+	if c.Repository != "" {
+		lines = append(lines, "from "+c.Repository)
+	} else {
+		lines = append(lines, "from a repository it does not name")
+	}
+	if len(c.Mods) > 0 {
+		lines = append(lines, "mods: "+strings.Join(c.Mods, ", "))
+	} else {
+		lines = append(lines, "no mods")
+	}
+	return strings.Join(lines, "\n")
 }

@@ -383,7 +383,7 @@ func (s *Server) page(r *http.Request, title, section string) view.Page {
 	ctx := r.Context()
 	p := principal(r)
 	page := view.Page{Title: title, Section: section, Fleet: s.Fleet.Name(ctx), Version: s.Version, User: p,
-		Path: r.URL.Path, Now: s.Fleet.Now(), Zone: s.Fleet.Location()}
+		Path: r.URL.Path, Now: s.Fleet.Now(), Zone: s.Fleet.Location(), Repository: s.Fleet.Config.ReleaseRepository}
 	if p != nil {
 		page.CSRF = p.CSRF
 	}

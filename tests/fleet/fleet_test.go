@@ -337,6 +337,29 @@ func TestFleet(t *testing.T) {
 		}
 	})
 
+	t.Run("the players' games, as they told the servers", func(t *testing.T) {
+		// (fakehalo's scripted players: build 282, one in two with a mod, one
+		// in three from another repository than the fleet's)
+		var body string
+		h.until("players with their games on the Players page", 20*time.Second, func() bool {
+			_, body = h.page(h.cookie, "/players")
+			return strings.Contains(body, ">build 282<")
+		})
+		for _, want := range []string{">Client<", ">fork<", ">1 mod<", "from someone/OpenCE", "mods: trollface 1.0",
+			"OpenCE Linux | build 282 (release)"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the Players page has no %q", want)
+			}
+		}
+		// the search finds a player by its game's repository or mods
+		if _, found := h.page(h.cookie, "/players?q=someone/opence"); !strings.Contains(found, ">fork<") {
+			t.Error("the search does not find a fork's player")
+		}
+		if _, server := h.page(h.cookie, "/servers/btb-1/players"); !strings.Contains(server, ">Client<") {
+			t.Error("a server's Players tab has no Client column")
+		}
+	})
+
 	t.Run("a drained restart is a job", func(t *testing.T) {
 		before := h.fleet.Live.Instance("btb-2").Since
 		id, err := h.fleet.StartJob(ctx, "user:paul", core.JobParams{Action: core.ActionDrainRestart, Slugs: []string{"btb-2"},

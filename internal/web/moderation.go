@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view/pages"
 )
 
@@ -39,7 +40,8 @@ func (s *Server) fleetPlayers(ctx context.Context, search string) ([]pages.Fleet
 				return
 			}
 			for _, p := range players {
-				if search != "" && !strings.Contains(strings.ToLower(p.Name+" "+p.Address+" "+p.HWID), search) {
+				if search != "" && !strings.Contains(strings.ToLower(p.Name+" "+p.Address+" "+p.HWID+" "+clientText(p.Client)),
+					search) {
 					continue
 				}
 				out = append(out, pages.FleetPlayer{Player: p, Slug: i.Slug, Server: i.Name})
@@ -122,4 +124,13 @@ func (s *Server) unban(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.done(w, r, "/bans", "Unbanned: its lines go from every server's bans.txt.")
+}
+
+// clientText is what a player's game told of itself, for the search: its
+// label, repository and mods.
+func clientText(c *serverapi.ClientBuild) string {
+	if c == nil {
+		return ""
+	}
+	return c.Version + " " + c.Repository + " " + strings.Join(c.Mods, " ")
 }
