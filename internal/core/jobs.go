@@ -604,8 +604,11 @@ func (f *Fleet) prefetch(ctx context.Context, node int64, build string) {
 }
 
 // update moves one instance to the job's channel: drained, restarted on the
-// new build, up and listed again; a server that does not come up on it is
-// put back on its build and the job stops.
+// new build, up and listed again. A server that was up and does not come up
+// on it is put back on its build, pinned there, with an alert
+// (update_rolled_back); one that was not up before either (no game data, a
+// configuration refused) stays on the new build, which is not what failed.
+// Either way the job stops.
 func (j *jobRunner) update(ctx context.Context, p JobParams, i Instance, actor string) (string, string) {
 	f := j.f
 	build, err := f.ResolveChannel(ctx, p.Channel)
@@ -613,14 +616,13 @@ func (j *jobRunner) update(ctx context.Context, p JobParams, i Instance, actor s
 		return ItemRefused, err.Error()
 	}
 	l := f.Live.Instance(i.Slug)
-	previous := ""
+	previous, wasUp, was := "", false, stateWords(l)
 	if l != nil {
-		previous = l.Build
+		previous, wasUp = l.Build, l.State == "up"
 	}
 	if previous == build && l != nil && l.State == "up" && !l.RestartNeeded {
 		return ItemSkipped, "runs " + build + " already"
 	}
-	oldChannel := i.Channel
 	channel := p.Channel
 	if err := f.UpdateInstance(ctx, actor, i.Slug, InstanceUpdate{Name: i.Name, ProfileID: i.ProfileID, Overrides: i.Overrides,
 		KeyID: i.KeyID, Channel: channel, Notes: i.Notes}); err != nil {
@@ -639,16 +641,35 @@ func (j *jobRunner) update(ctx context.Context, p JobParams, i Instance, actor s
 	if state == "up" {
 		return ItemDone, "runs " + build
 	}
-	// (the rollback: its channel back, started again on its build)
-	f.UpdateInstance(context.Background(), "auto", i.Slug, InstanceUpdate{Name: i.Name, ProfileID: i.ProfileID,
-		Overrides: i.Overrides, KeyID: i.KeyID, Channel: oldChannel, Notes: i.Notes})
-	if previous != "" && oldChannel == "" {
-		// (it followed latest, which moved: pin it to the build it ran)
-		f.UpdateInstance(context.Background(), "auto", i.Slug, InstanceUpdate{Name: i.Name, ProfileID: i.ProfileID,
-			Overrides: i.Overrides, KeyID: i.KeyID, Channel: previous, Notes: i.Notes})
+	now := stateWords(f.Live.Instance(i.Slug))
+	if !wasUp {
+		// (it did not run before the update either: what stops it is not the
+		// build, and its old one would do no better)
+		return ItemRefused, fmt.Sprintf("did not come up on %s (%s): left on it, as it was not up before the "+
+			"update either (%s)", build, now, was)
 	}
+	if previous == "" {
+		return ItemRefused, fmt.Sprintf("did not come up on %s (%s): left on it, as the build it ran is not known",
+			build, now)
+	}
+	// (the rollback: started again on the build it ran, pinned to it, so that
+	// a restart does not take the new one again)
+	f.UpdateInstance(context.Background(), "auto", i.Slug, InstanceUpdate{Name: i.Name, ProfileID: i.ProfileID,
+		Overrides: i.Overrides, KeyID: i.KeyID, Channel: previous, Notes: i.Notes})
 	f.Restart(context.Background(), "auto", i.Slug)
-	return ItemRefused, fmt.Sprintf("did not come up on %s (%s): put back on %s", build, stateWords(f.Live.Instance(i.Slug)), previous)
+	f.raiseAlert(context.Background(), "update_rolled_back", i.Slug, fmt.Sprintf("pinned to %s after a failed "+
+		"update to %s (%s): its Release set to follow a channel again ends it", previous, build, now))
+	return ItemRefused, fmt.Sprintf("did not come up on %s (%s): put back on %s, and pinned to it", build, now, previous)
+}
+
+// PinNote is why an instance is pinned to its build, after an update that
+// did not come up ("" when it is not).
+func (f *Fleet) PinNote(ctx context.Context, slug string) string {
+	a, err := f.Store.GetOpenAlert(ctx, db.GetOpenAlertParams{Rule: "update_rolled_back", Target: slug})
+	if err != nil {
+		return ""
+	}
+	return a.Detail
 }
 
 // setRotation sets a rotation on every instance, or on none: each is set,

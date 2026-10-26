@@ -448,6 +448,11 @@ func (f *Fleet) UpdateInstance(ctx context.Context, actor, slug string, u Instan
 	}
 	f.Audit(ctx, actor, "instance.update", slug, map[string]any{"name": u.Name, "overrides": redactSettings(u.Overrides.Settings),
 		"channel": u.Channel})
+	// (a pin after a rolled-back update ends when a person, or a later
+	// update, sets its release)
+	if u.Channel != i.Channel && actor != "auto" {
+		f.resolveAlert("update_rolled_back", slug)
+	}
 	f.Push(i.NodeID)
 	f.Live.Notify(liveChange("instance", slug))
 	return nil

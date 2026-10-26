@@ -15,6 +15,8 @@ type ServerView struct {
 	Instance     core.Instance
 	ProfileName  string
 	Channel      string
+	// why it is pinned to its build, after an update that did not come up
+	Pinned       string
 	KeyID        string
 	ServerID     string
 	Invite       string
@@ -246,6 +248,9 @@ templ ServerOverview(p view.Page, v ServerView) {
 								{ firstOf(v.Row.Build, "—") } <span class="text-muted">· follows { v.Channel }</span>
 								if v.ServerBuild != "" && v.ServerBuild != v.Row.Build {
 									<span class="text-muted">· the server says { v.ServerBuild }</span>
+								}
+								if v.Pinned != "" {
+									<span class="mt-1 block text-xs text-warn">{ v.Pinned }</span>
 								}
 							}
 							@parts.Item("On the masters") {

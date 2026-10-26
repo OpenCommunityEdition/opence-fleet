@@ -33,6 +33,7 @@ var Rules = []struct{ ID, Name string }{
 	{"disk_low", "A node's disk under 10 % free"},
 	{"speed_hack", "A speed hack"},
 	{"update_failed", "An update that did not come up"},
+	{"update_rolled_back", "A server put back on its build, pinned, after an update that did not come up"},
 }
 
 // RuleName is a rule's words.

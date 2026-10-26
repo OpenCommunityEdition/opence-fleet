@@ -36,6 +36,7 @@ func (s *Server) serverView(ctx context.Context, slug string, p *auth.Principal)
 		}
 	}
 	v.Channel = s.Fleet.Channel(ctx, i.Instance, profile)
+	v.Pinned = s.Fleet.PinNote(ctx, slug)
 	keyID := core.InstanceKeyID(ctx, s.Fleet, i.Instance, profile)
 	v.KeyID, v.ServerID = keyID, core.ServerID(keyID, slug)
 	if l := s.Fleet.Live.Instance(slug); l != nil {
