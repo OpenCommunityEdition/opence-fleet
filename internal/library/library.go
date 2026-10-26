@@ -8,6 +8,7 @@
 package library
 
 import (
+	"compress/zlib"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -40,6 +41,10 @@ type Header struct {
 	Build   string
 	Type    int
 	Size    int64
+	// Length is the size the header gives the map: for the Xbox's, the
+	// cache file the game inflates it to (the file itself is the disc's
+	// compressed copy)
+	Length int64
 }
 
 // TypeName is the scenario type's word.
@@ -73,14 +78,40 @@ func ReadHeader(r io.ReaderAt, size int64) (Header, error) {
 		return Header{}, errors.New("not a cache file: no head and foot signatures")
 	}
 	h := Header{Version: int(int32(binary.LittleEndian.Uint32(head[4:8]))), Size: size,
-		Name: cstring(head[0x20:0x40]), Build: cstring(head[0x40:0x60]), Type: int(binary.LittleEndian.Uint16(head[0x60:0x62]))}
+		Name: cstring(head[0x20:0x40]), Build: cstring(head[0x40:0x60]), Type: int(binary.LittleEndian.Uint16(head[0x60:0x62])),
+		Length: int64(binary.LittleEndian.Uint32(head[8:12]))}
 	if h.Version != VersionXbox && h.Version != VersionCustomEdition {
 		return h, fmt.Errorf("a cache file of version %d: the server plays the Xbox's (5) and Custom Edition's (609)", h.Version)
 	}
-	if length := int64(binary.LittleEndian.Uint32(head[8:12])); h.Version == VersionXbox && length != size && size > 0 {
-		return h, fmt.Errorf("the header says %d bytes, the file has %d: a truncated copy?", length, size)
-	}
 	return h, nil
+}
+
+// CheckXboxBody inflates an Xbox map's body as the game copies it from the
+// disc (cache_files_decompress_windows.c): a zlib stream after the header
+// that must come to the size the header gives less the header's, else the
+// game refuses the map.
+func CheckXboxBody(r io.ReaderAt, h Header) error {
+	want := h.Length - 0x800
+	if want < 0 {
+		return fmt.Errorf("the header says %d bytes, less than a header: not a map the game can read", h.Length)
+	}
+	stream, err := zlib.NewReader(io.NewSectionReader(r, 0x800, h.Size-0x800))
+	if err != nil {
+		return errors.New("its body is not compressed as the disc's maps are: copy the map from the game's disc image as it is")
+	}
+	defer stream.Close()
+	got, err := io.Copy(io.Discard, io.LimitReader(stream, want+1))
+	switch {
+	case err != nil && got < want:
+		return fmt.Errorf("its compressed body stops after %d of %d bytes: a truncated copy? Copy it from the disc image again", got, want)
+	case err != nil:
+		return fmt.Errorf("its compressed body is damaged (%v): copy it from the disc image again", err)
+	case got > want:
+		return fmt.Errorf("its body inflates to more than the %d bytes the header says: copy it from the disc image again", want)
+	case got < want:
+		return fmt.Errorf("its body inflates to %d bytes, the header says %d: copy it from the disc image again", got, want)
+	}
+	return nil
 }
 
 func cstring(b []byte) string {
@@ -173,6 +204,11 @@ func Check(kind, path string) (map[string]any, error) {
 	}
 	if kind == KindMap && h.Version != VersionXbox {
 		return nil, fmt.Errorf("%s is a Custom Edition map: add it as a custom map (custom_maps/)", h.Name)
+	}
+	if h.Version == VersionXbox {
+		if err := CheckXboxBody(f, h); err != nil {
+			return nil, err
+		}
 	}
 	if kind == KindCustomMap && h.Version != VersionCustomEdition {
 		return nil, fmt.Errorf("%s is one of the Xbox's maps: add it as a map (maps/)", h.Name)

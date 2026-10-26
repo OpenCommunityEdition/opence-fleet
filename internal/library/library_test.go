@@ -2,6 +2,7 @@ package library
 
 import (
 	"bytes"
+	"compress/zlib"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,8 +14,22 @@ import (
 
 // header is a synthetic cache file (tools/fakehalo's layout): its header's
 // signatures, version, size, name, build and scenario type, and nothing of
-// a game; size is the file's length and the size the header says.
+// a game; size is the size the header says. An Xbox map's body is
+// compressed, as the disc's are; a Custom Edition map's is not.
 func header(name string, kind, version, size int) []byte {
+	data := plain(name, kind, version, size)
+	if version != VersionXbox {
+		return data
+	}
+	var body bytes.Buffer
+	z := zlib.NewWriter(&body)
+	z.Write(data[0x800:])
+	z.Close()
+	return append(data[:0x800], body.Bytes()...)
+}
+
+// plain is a synthetic cache file as the game leaves it once inflated.
+func plain(name string, kind, version, size int) []byte {
 	data := make([]byte, size)
 	copy(data[0:4], "daeh")
 	binary.LittleEndian.PutUint32(data[4:8], uint32(version))
@@ -23,8 +38,14 @@ func header(name string, kind, version, size int) []byte {
 	copy(data[0x40:0x60], "01.10.12.2276")
 	binary.LittleEndian.PutUint16(data[0x60:0x62], uint16(kind))
 	copy(data[0x7fc:0x800], "toof")
+	for i := 0x800; i < size; i++ {
+		data[i] = byte(i * 7 % 251)
+	}
 	return data
 }
+
+// cut is a copy that stopped halfway through.
+func cut(data []byte) []byte { return data[:0x800+(len(data)-0x800)/2] }
 
 func write(t *testing.T, dir, name string, data []byte) string {
 	t.Helper()
@@ -71,6 +92,9 @@ func TestReadHeader(t *testing.T) {
 			if h.Build != "01.10.12.2276" || h.Size != int64(len(tt.data)) {
 				t.Errorf("build %q, size %d", h.Build, h.Size)
 			}
+			if h.Version == VersionXbox && h.Length != 4096 && h.Length != 0x800 {
+				t.Errorf("length %d", h.Length)
+			}
 		})
 	}
 }
@@ -90,7 +114,6 @@ func TestReadHeaderRefuses(t *testing.T) {
 		{"garbage", garbage, int64(len(garbage)), "no head and foot signatures"},
 		{"no foot", noFoot, 4096, "no head and foot signatures"},
 		{"another version", header("bloodgulch", Multiplayer, 7, 4096), 4096, "version 7"},
-		{"a truncated xbox map", header("bloodgulch", Multiplayer, VersionXbox, 4096)[:3000], 3000, "truncated"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,7 +203,23 @@ func TestCheck(t *testing.T) {
 	custom := write(t, dir, "custom_maps/deathisland.map", header("deathisland", Multiplayer, VersionCustomEdition, 4096))
 	resource := write(t, dir, "custom_maps/bitmaps.map", bytes.Repeat([]byte{1}, 1000))
 	garbage := write(t, dir, "maps/garbage.map", bytes.Repeat([]byte("garbage!"), 512))
-	truncated := write(t, dir, "maps/prisoner.map", header("prisoner", Multiplayer, VersionXbox, 4096)[:3000])
+	// (the disc's maps are smaller than their headers say: the game inflates them)
+	disc := header("hangemhigh", Multiplayer, VersionXbox, 1<<20)
+	if len(disc) >= 1<<20 {
+		t.Fatalf("a compressed map of %d bytes", len(disc))
+	}
+	compressed := write(t, dir, "maps/hangemhigh.map", disc)
+	truncated := write(t, dir, "maps/prisoner.map", cut(header("prisoner", Multiplayer, VersionXbox, 1<<20)))
+	inflated := write(t, dir, "maps/chillout.map", plain("chillout", Multiplayer, VersionXbox, 4096))
+	short := header("damnation", Multiplayer, VersionXbox, 4096)
+	binary.LittleEndian.PutUint32(short[8:12], 8192)
+	shortPath := write(t, dir, "maps/damnation.map", short)
+	long := header("putput", Multiplayer, VersionXbox, 8192)
+	binary.LittleEndian.PutUint32(long[8:12], 4096)
+	longPath := write(t, dir, "maps/putput.map", long)
+	small := header("ratrace", Multiplayer, VersionXbox, 4096)
+	binary.LittleEndian.PutUint32(small[8:12], 16)
+	smallPath := write(t, dir, "maps/ratrace.map", small)
 
 	meta, err := Check(KindMap, xbox)
 	if err != nil {
@@ -191,6 +230,9 @@ func TestCheck(t *testing.T) {
 		if meta[k] != v {
 			t.Errorf("meta[%s] = %v, want %v", k, meta[k], v)
 		}
+	}
+	if meta, err := Check(KindMap, compressed); err != nil || meta["scenario"] != "hangemhigh" {
+		t.Errorf("a map as the disc has it: %v, %v", meta, err)
 	}
 	if meta, err := Check(KindMap, campaign); err != nil || meta["type"] != "campaign" {
 		t.Errorf("a campaign map: %v, %v", meta, err)
@@ -215,6 +257,10 @@ func TestCheck(t *testing.T) {
 		{"an xbox map among the custom ones", KindCustomMap, xbox, "add it as a map"},
 		{"garbage", KindMap, garbage, "not a cache file"},
 		{"a truncated map", KindMap, truncated, "truncated"},
+		{"an inflated map", KindMap, inflated, "not compressed as the disc's maps are"},
+		{"a map shorter than its header says", KindMap, shortPath, "inflates to 2048 bytes, the header says 6144"},
+		{"a map longer than its header says", KindMap, longPath, "more than the 2048 bytes"},
+		{"a header that says less than a header", KindMap, smallPath, "less than a header"},
 		{"no file", KindMap, filepath.Join(dir, "maps/nowhere.map"), "no such file"},
 	}
 	for _, tt := range refused {
@@ -258,7 +304,7 @@ func TestStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sha != digest(data) || size != 4096 {
+	if sha != digest(data) || size != int64(len(data)) {
 		t.Errorf("Keep: %s, %d", sha, size)
 	}
 	if !s.Has(sha) {
