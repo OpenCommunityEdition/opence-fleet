@@ -83,8 +83,6 @@ type ProfileInput struct {
 	ApplyMode string
 }
 
-var regionPattern = regexp.MustCompile(`^[a-z0-9-]{0,16}$`)
-
 func (f *Fleet) checkProfile(ctx context.Context, in *ProfileInput) error {
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || len(in.Name) > 64 {
@@ -106,8 +104,13 @@ func (f *Fleet) checkProfile(ctx context.Context, in *ProfileInput) error {
 		return Refuse(http.StatusBadRequest, "schema", "a rotation is 64 entries at most (%d)", n)
 	}
 	in.Region = strings.ToLower(strings.TrimSpace(in.Region))
-	if !regionPattern.MatchString(in.Region) {
-		return Refuse(http.StatusBadRequest, "schema", "a region is up to 16 of a-z, 0-9 and '-' (eu, na-east)")
+	if in.Region != "" && !spec.KnownRegion(in.Region) {
+		var known []string
+		for _, r := range spec.Regions {
+			known = append(known, r.Value)
+		}
+		return Refuse(http.StatusBadRequest, "schema", "%q is not a region: one of %s, or none", in.Region,
+			strings.Join(known, ", "))
 	}
 	switch in.PasswordPolicy {
 	case PasswordNone, PasswordFixed, PasswordPerInstance:

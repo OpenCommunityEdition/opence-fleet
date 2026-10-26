@@ -135,7 +135,7 @@ try {
 
   await page.goto(`${base}/profiles/new`);
   await page.fill('#name', 'BTB');
-  await page.fill('#region', 'eu');
+  await page.selectOption('#region', 'eu');
   await page.fill('textarea[name=rotation]', 'bloodgulch:ctf, sidewinder:slayer');
   await page.locator('form[action^="/profiles"] button[type=submit]').first().click();
   await page.waitForLoadState();

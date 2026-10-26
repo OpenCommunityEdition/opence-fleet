@@ -102,8 +102,16 @@ templ Profile(p view.Page, e ProfileEdit) {
 								@parts.Field("name", "Name", "") {
 									<input id="name" name="name" class={ view.Input } value={ e.Profile.Name } required maxlength="64"/>
 								}
-								@parts.Field("region", "Region", "Shown in the server browser: eu, na-east…") {
-									<input id="region" name="region" class={ view.Input } value={ e.Profile.Region } maxlength="16"/>
+								@parts.Field("region", "Region", "Shown in the server browser, where the servers are.") {
+									<select id="region" name="region" class={ view.Select }>
+										<option value="" selected?={ e.Profile.Region == "" }>none</option>
+										for _, r := range spec.Regions {
+											<option value={ r.Value } selected?={ e.Profile.Region == r.Value }>{ r.Name } ({ r.Value })</option>
+										}
+										if e.Profile.Region != "" && !spec.KnownRegion(e.Profile.Region) {
+											<option value={ e.Profile.Region } selected>{ e.Profile.Region }: not a region of the list, choose one</option>
+										}
+									</select>
 								}
 								<div class="md:col-span-2">
 									@parts.Field("description", "Description", "") {
