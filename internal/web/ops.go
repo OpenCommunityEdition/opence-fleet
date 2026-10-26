@@ -374,6 +374,27 @@ func (s *Server) startUpdate(w http.ResponseWriter, r *http.Request) {
 	s.done(w, r, "/settings", "Updating: the fleet restarts into the new release in a moment.")
 }
 
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.Updater == nil {
+		s.fail(w, r, "/settings", core.Refuse(http.StatusConflict, "off", "updates are off"))
+		return
+	}
+	release, newer, err := s.Updater.CheckNow(r.Context(), s.actor(r))
+	if err != nil {
+		s.fail(w, r, "/settings", core.Refuse(http.StatusBadGateway, "unchecked",
+			"The releases were not checked (%v): try again in a moment.", err))
+		return
+	}
+	notice := "opence-fleet " + release.Version + " is the latest release: this fleet runs it."
+	switch {
+	case newer && s.Updater.Status().Updating:
+		notice = "opence-fleet " + release.Version + " is out: the fleet updates to it now (FLEET_UPDATES=auto)."
+	case newer:
+		notice = "opence-fleet " + release.Version + " is out: update to it below."
+	}
+	s.done(w, r, "/settings", notice)
+}
+
 func (s *Server) publicStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if s.Fleet.Setting(ctx, "public_status") != "true" && !s.Fleet.Config.PublicStatus {

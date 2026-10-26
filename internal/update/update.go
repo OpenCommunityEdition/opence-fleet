@@ -160,17 +160,33 @@ func (u *Updater) Run(ctx context.Context, interval time.Duration) {
 		case <-time.After(wait):
 		}
 		wait = interval
-		release, err := u.Check(ctx)
-		if err != nil {
+		if _, _, err := u.CheckNow(ctx, "auto"); err != nil {
 			u.Log.Warn("update: the releases were not checked", "err", err)
-			continue
-		}
-		if u.Mode == Auto && Newer(release.Version, u.Current) {
-			if err := u.Start("auto"); err != nil {
-				u.Log.Warn("update: not started", "err", err)
-			}
 		}
 	}
+}
+
+// CheckNow reads the latest release at once (an owner's button, or Run's
+// turn) and, in auto mode, installs a newer one as Run would: the release,
+// and whether it is newer than the running one.
+func (u *Updater) CheckNow(ctx context.Context, actor string) (Release, bool, error) {
+	if u.Mode == Off {
+		return Release{}, false, errors.New("the fleet's updates are off (FLEET_UPDATES=off): set it to notify or auto to check")
+	}
+	if !Valid(u.Current) {
+		return Release{}, false, fmt.Errorf("this fleet is a development build (%s), which does not update itself: only a vX.Y.Z release does", u.Current)
+	}
+	release, err := u.Check(ctx)
+	if err != nil {
+		return release, false, err
+	}
+	newer := Newer(release.Version, u.Current)
+	if newer && u.Mode == Auto {
+		if err := u.Start(actor); err != nil {
+			u.Log.Warn("update: not started", "err", err)
+		}
+	}
+	return release, newer, nil
 }
 
 func (u *Updater) get(ctx context.Context, url string, limit int64, accept string) ([]byte, error) {

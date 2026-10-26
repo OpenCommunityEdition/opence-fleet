@@ -196,6 +196,7 @@ func (s *Server) Handler() http.Handler {
 	page("GET /settings", auth.Owner, s.settingsPage)
 	form("POST /settings", auth.Owner, s.saveSettings)
 	form("POST /settings/update", auth.Owner, s.startUpdate)
+	form("POST /settings/update/check", auth.Owner, s.checkUpdate)
 
 	// the live stream
 	mux.Handle("GET /events", s.gate(auth.Viewer, http.HandlerFunc(s.events)))

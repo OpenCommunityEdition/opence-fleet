@@ -196,8 +196,11 @@ logs and saves). A forgotten server's folder is kept aside for 7 days.
 
 ### Updating
 
-The fleet checks its releases every `FLEET_RELEASE_CHECK_INTERVAL` and, with
+The fleet checks its own releases a minute after it starts and every 6
+hours (the Settings page's *Check now* does at once) and, with
 `FLEET_UPDATES=notify`, shows the owners a button; `auto` installs at once.
+(`FLEET_RELEASE_CHECK_INTERVAL` is how often the game's server image's
+latest is resolved, on the Releases page.)
 An update is a signed release (`SHA256SUMS` signed with the release key);
 the control plane restarts into it with its listener handed over, and
 offers the same version to every agent, which updates itself without

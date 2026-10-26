@@ -505,9 +505,12 @@ templ Settings(p view.Page, rows []SettingRow, u UpdateView) {
 								}
 							}
 						}
-						if u.Available && !u.Updating {
-							<div class="mt-4">
-								@parts.Post("/settings/update", "Update to "+u.Latest, view.Primary, p.CSRF)
+						if !u.Updating && u.Mode != "off" {
+							<div class="mt-4 flex flex-wrap gap-2">
+								if u.Available {
+									@parts.Post("/settings/update", "Update to "+u.Latest, view.Primary, p.CSRF)
+								}
+								@parts.Post("/settings/update/check", "Check now", view.Secondary, p.CSRF)
 							</div>
 						}
 						if u.Updating {

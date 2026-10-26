@@ -208,3 +208,44 @@ func TestBackupDatabase(t *testing.T) {
 		t.Fatalf("%q", data)
 	}
 }
+
+// CheckNow reads the latest release at once; in auto mode it installs a
+// newer one, and it refuses with the updates off or in a development build.
+func TestCheckNow(t *testing.T) {
+	public, private, _ := ed25519.GenerateKey(nil)
+	server := release(t, private, "v1.1.0", nil)
+	u := updater(t, server, public)
+	u.Started = func(v, actor string) { t.Errorf("started %s by %s in notify mode", v, actor) }
+	r, newer, err := u.CheckNow(context.Background(), "user:paul")
+	if err != nil || r.Version != "v1.1.0" || !newer || !u.Status().Available || u.Status().Checked.IsZero() {
+		t.Fatalf("%v %+v %v %+v", err, r, newer, u.Status())
+	}
+	u.Current = "v1.1.0"
+	if _, newer, err := u.CheckNow(context.Background(), "user:paul"); err != nil || newer {
+		t.Fatalf("the same release: %v %v", err, newer)
+	}
+
+	u = updater(t, server, public)
+	u.Mode = Auto
+	started := make(chan string, 1)
+	u.Started = func(v, actor string) { started <- v + " " + actor }
+	// (the install ends in Restart or Failed before the test's folder goes)
+	ended := make(chan string, 1)
+	u.Failed = func(_ string, err error) { ended <- err.Error() }
+	u.Restart = func(string) { ended <- "restarted" }
+	if _, newer, err := u.CheckNow(context.Background(), "user:paul"); err != nil || !newer {
+		t.Fatalf("auto: %v %v", err, newer)
+	}
+	if got := <-started; got != "v1.1.0 user:paul" {
+		t.Fatalf("auto started %q", got)
+	}
+	if got := <-ended; got != "restarted" {
+		t.Fatalf("auto: %s", got)
+	}
+
+	for name, u := range map[string]*Updater{"off": {Current: "v1.0.0", Mode: Off}, "dev": {Current: "dev", Mode: Notify}} {
+		if _, _, err := u.CheckNow(context.Background(), "user:paul"); err == nil {
+			t.Errorf("%s: checked", name)
+		}
+	}
+}

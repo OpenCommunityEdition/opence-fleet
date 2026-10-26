@@ -24,6 +24,7 @@ import (
 	"github.com/OpenCommunityEdition/opence-fleet/internal/live"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/spec"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/store"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/update"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/web"
 	"github.com/OpenCommunityEdition/opence-fleet/static"
 )
@@ -48,6 +49,7 @@ type fixture struct {
 	fleet   *core.Fleet
 	auth    *auth.Auth
 	handler http.Handler
+	server  *web.Server
 	owner   *auth.Principal
 	cookie  string
 }
@@ -72,7 +74,7 @@ func newFixture(t *testing.T, clients *httpx.Clients, withOwner bool) *fixture {
 	}
 	server := web.New(f, a, clients, quiet(), "dev-test")
 	web.Static = static.Files
-	x := &fixture{t: t, fleet: f, auth: a, handler: server.Handler()}
+	x := &fixture{t: t, fleet: f, auth: a, handler: server.Handler(), server: server}
 	if withOwner {
 		ctx := context.Background()
 		code, err := a.SetupCode(ctx)
@@ -694,5 +696,46 @@ func TestEventsStream(t *testing.T) {
 			t.Fatalf("the row does not show the change: %s", html)
 		}
 		return
+	}
+}
+
+// The Settings page's Check now reads the fleet's latest release at once:
+// an owner's, and the page then offers the update.
+func TestCheckUpdateNow(t *testing.T) {
+	x := newFixture(t, nil, true)
+	releases := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"tag_name": "v1.1.0", "html_url": "https://example.org/r"})
+	}))
+	t.Cleanup(releases.Close)
+	x.server.Updater = &update.Updater{Current: "v1.0.0", Mode: update.Notify, Source: releases.URL, Client: releases.Client(),
+		Log: quiet()}
+	check := func(token, csrf string) *httptest.ResponseRecorder {
+		r := signed(request(http.MethodPost, "/settings/update/check", loopback, form(url.Values{"csrf": {csrf}})), token)
+		r.Header.Set("Accept", "application/json")
+		return x.do(r)
+	}
+
+	page := x.do(signed(request(http.MethodGet, "/settings", loopback, nil), x.cookie)).Body.String()
+	if !strings.Contains(page, `action="/settings/update/check"`) || strings.Contains(page, "Update to") {
+		t.Fatalf("the page before a check: %s", page)
+	}
+	w := check(x.cookie, x.owner.CSRF)
+	var answer struct{ Message string }
+	if err := json.Unmarshal(w.Body.Bytes(), &answer); w.Code != http.StatusOK || err != nil ||
+		answer.Message != "opence-fleet v1.1.0 is out: update to it below." {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if page := x.do(signed(request(http.MethodGet, "/settings", loopback, nil), x.cookie)).Body.String(); !strings.Contains(page, "Update to v1.1.0") {
+		t.Fatalf("the page after a check: %s", page)
+	}
+
+	admin := x.user("admin")
+	if w := check(admin, ""); w.Code != http.StatusForbidden {
+		t.Fatalf("an admin checked: %d %s", w.Code, w.Body)
+	}
+
+	releases.Close()
+	if w := check(x.cookie, x.owner.CSRF); w.Code != http.StatusBadGateway || errorCode(t, w) != "unchecked" {
+		t.Fatalf("an unreachable release: %d %s", w.Code, w.Body)
 	}
 }
