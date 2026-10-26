@@ -12,7 +12,7 @@ env:
   # conformance test checks tools/fakehalo against (pinned: move it on
   # purpose, when the game's API changes)
   GAME_REPOSITORY: OpenCommunityEdition/OpenCE
-  GAME_REF: 815d3a0ca551aa82c4c17d132866217583b36c05
+  GAME_REF: 09123e997c51a4a6b40fd89176fe4f95f2fc83e6
 
 jobs:
   test:

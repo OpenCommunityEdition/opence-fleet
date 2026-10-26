@@ -41,9 +41,15 @@ func updateRig(t *testing.T, before string) (*Fleet, []string) {
 		return &agentproto.Reply{OK: true}
 	})
 	until(t, "the node online", func() bool { return f.Hub.Online(nodeID) })
-	// (the node has both builds: the update's pull waits for nothing)
+	// (the node has both builds: the update's pull waits for nothing. Said
+	// until the fleet has it: the agent's hello, taken a moment after the
+	// node is online, starts its heartbeat again from nothing)
 	heartbeat, _ := json.Marshal(agentproto.Heartbeat{Images: []string{"b1", "b2"}, Version: "test"})
-	f.Report(nodeID, agentproto.THeartbeat, heartbeat)
+	until(t, "the node's builds", func() bool {
+		f.Report(nodeID, agentproto.THeartbeat, heartbeat)
+		l := f.Live.Node(nodeID)
+		return l != nil && l.Online && len(l.Heartbeat.Images) == 2
+	})
 	// (its state before the update: up on b1, or blocked already)
 	report(slugs[0], before, "b1", map[string]string{"up": "", "blocked": "no usable game data (exit 2)"}[before],
 		time.Now().Add(-time.Minute))
