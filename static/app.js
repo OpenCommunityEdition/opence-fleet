@@ -166,6 +166,28 @@
   // ---------- uploads: hashed in the browser (a retry of a file the library
   // has is done at once), sent in chunks that resume where they stopped
   function uploads() {
+    // (a folder's file goes by the folder it is in, as library.Classify does
+    // on the server; a file picked alone by the kind chosen)
+    const resources = ["bitmaps", "sounds", "loc"];
+    const extensions = { map: ".map", custom_map: ".map", resource: ".map", gametype: ".toml", saved_gametype: ".gametype" };
+    const classify = (file, chosen) => {
+      const path = (file.webkitRelativePath || "").toLowerCase();
+      const base = file.name.toLowerCase();
+      if (path) {
+        const parts = path.split("/");
+        const dir = parts.length > 1 ? parts[parts.length - 2] : "";
+        const stem = base.replace(/\.[^.]*$/, "");
+        if (dir === "maps" && base.endsWith(".map")) return { kind: "map", name: stem };
+        if (dir === "custom_maps" && base.endsWith(".map"))
+          return { kind: resources.includes(stem) ? "resource" : "custom_map", name: stem };
+        if (dir === "gametypes" && base.endsWith(".toml")) return { kind: "gametype", name: stem };
+        if (dir === "gametypes" && base.endsWith(".gametype")) return { kind: "saved_gametype", name: stem };
+        return null;
+      }
+      if (!base.endsWith(extensions[chosen])) return null;
+      return { kind: chosen, name: base.slice(0, -extensions[chosen].length) };
+    };
+
     document.querySelectorAll("[data-upload]").forEach((form) => {
       if (!window.crypto || !crypto.subtle) return;
       const bar = form.querySelector("[data-upload-bar]");
@@ -176,54 +198,89 @@
         bar.classList.remove("hidden");
         fill.style.width = total ? ((done / total) * 100).toFixed(1) + "%" : "0";
       };
-      form.addEventListener("submit", async (e) => {
-        const file = form.querySelector('input[type="file"]').files[0];
-        if (!file) return;
-        e.preventDefault();
-        const kind = form.querySelector('[name="kind"]').value;
-        let name = form.querySelector('[name="name"]').value.trim();
-        if (!name) name = file.name.replace(/\.(map|toml|gametype)$/i, "").toLowerCase();
-        const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrf(), Accept: "application/json" };
-        try {
-          say("Hashing " + file.name + "…");
-          const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-          const sha = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-          let r = await fetch("/library/uploads", {
-            method: "POST", headers, body: JSON.stringify({ kind, name, size: file.size, sha256: sha }),
+      const headers = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrf(), Accept: "application/json" });
+
+      // send uploads one file, resumable: "added" or "had" (the library had it)
+      const send = async (item, label) => {
+        const { file, kind, name } = item;
+        say(label + ": hashing…");
+        progress(0, file.size);
+        const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const sha = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+        let r = await fetch("/library/uploads", {
+          method: "POST", headers: headers(), body: JSON.stringify({ kind, name, size: file.size, sha256: sha }),
+        });
+        let answer = await r.json();
+        if (!answer.ok) throw new Error(answer.error.message);
+        if (answer.done) return "had";
+        const id = answer.id;
+        const chunk = 8 << 20;
+        let offset = 0;
+        while (offset < file.size) {
+          r = await fetch("/library/uploads/" + id + "?offset=" + offset, {
+            method: "PUT", headers: { "X-CSRF-Token": csrf(), Accept: "application/json" },
+            body: file.slice(offset, offset + chunk),
           });
-          let answer = await r.json();
-          if (!answer.ok) throw new Error(answer.error.message);
-          if (answer.done) {
-            say("The library has it already: " + name + ".");
-            setTimeout(() => location.reload(), 800);
-            return;
-          }
-          const id = answer.id;
-          const chunk = 8 << 20;
-          let offset = 0;
-          while (offset < file.size) {
-            r = await fetch("/library/uploads/" + id + "?offset=" + offset, {
-              method: "PUT", headers: { "X-CSRF-Token": csrf(), Accept: "application/json" },
-              body: file.slice(offset, offset + chunk),
-            });
-            answer = await r.json();
-            if (r.status === 409 && answer.received !== undefined) {
-              offset = answer.received;
-              continue;
-            }
-            if (!answer.ok) throw new Error(answer.error.message);
-            offset = answer.received;
-            progress(offset, file.size);
-            say("Sent " + (offset >> 20) + " of " + (file.size >> 20) + " MB");
-          }
-          r = await fetch("/library/uploads/" + id + "/finish", { method: "POST", headers });
           answer = await r.json();
+          if (r.status === 409 && answer.received !== undefined) {
+            offset = answer.received;
+            continue;
+          }
           if (!answer.ok) throw new Error(answer.error.message);
-          say(answer.name + " is in the library.");
-          setTimeout(() => location.reload(), 800);
-        } catch (err) {
-          say("The upload stopped: " + err.message + " (send it again: it resumes).");
+          offset = answer.received;
+          progress(offset, file.size);
+          say(label + ": sent " + (offset >> 20) + " of " + (file.size >> 20) + " MB");
         }
+        r = await fetch("/library/uploads/" + id + "/finish", { method: "POST", headers: headers() });
+        answer = await r.json();
+        if (!answer.ok) throw new Error(answer.error.message);
+        return "added";
+      };
+
+      form.addEventListener("submit", async (e) => {
+        const picked = [...form.querySelectorAll('input[type="file"]')].flatMap((input) => [...input.files]);
+        e.preventDefault();
+        if (!picked.length) {
+          say("Choose files, or a folder.");
+          return;
+        }
+        const chosen = form.querySelector('[name="kind"]').value;
+        const items = [];
+        const skipped = [];
+        for (const file of picked) {
+          const item = classify(file, chosen);
+          if (item) items.push({ file, ...item });
+          else skipped.push(file.webkitRelativePath || file.name);
+        }
+        const typed = form.querySelector('[name="name"]').value.trim();
+        if (typed && items.length === 1) items[0].name = typed;
+        if (!items.length) {
+          say("Nothing to add: " + (skipped.length === 1 ? skipped[0] + " is" : "these are") +
+            " not of the kind chosen, or not in a maps/, custom_maps/ or gametypes/ folder.");
+          return;
+        }
+        const button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        let added = 0, had = 0;
+        const failed = [];
+        for (let n = 0; n < items.length; n++) {
+          const label = items[n].file.name + (items.length > 1 ? " (" + (n + 1) + " of " + items.length + ")" : "");
+          try {
+            if ((await send(items[n], label)) === "added") added++;
+            else had++;
+          } catch (err) {
+            failed.push(items[n].file.name + ": " + err.message);
+          }
+        }
+        button.disabled = false;
+        const parts = [];
+        if (added) parts.push(added + " added");
+        if (had) parts.push(had + " the library had already");
+        if (skipped.length) parts.push(skipped.length + " skipped (not of the kind, or in no maps/, custom_maps/ or gametypes/ folder)");
+        let text = (parts.join(", ") || "Nothing added") + ".";
+        if (failed.length) text += " Not sent: " + failed.join("; ") + " (send them again: they resume).";
+        say(text);
+        if (!failed.length && (added || had)) setTimeout(() => location.reload(), 1500);
       });
     });
   }

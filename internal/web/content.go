@@ -2,7 +2,9 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/library"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view/pages"
 )
@@ -38,38 +41,69 @@ func (s *Server) libraryPage(w http.ResponseWriter, r *http.Request) {
 // uploadItem is the form's upload without JavaScript (one request; the
 // resumable one is /library/uploads).
 func (s *Server) uploadItem(w http.ResponseWriter, r *http.Request) {
+	// (the form without JavaScript: its files of the kind chosen, as many as
+	// fit one item's size; a folder needs the page's script, which sends
+	// each file by its folder, resumable)
 	r.Body = http.MaxBytesReader(w, r.Body, core.MaximumItem+1<<20)
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		s.fail(w, r, "/library", core.Refuse(http.StatusBadRequest, "schema", "choose a file"))
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		s.fail(w, r, "/library", core.Refuse(http.StatusBadRequest, "schema", "the files were not received whole (%v)", err))
 		return
 	}
-	defer file.Close()
-	kind, name := r.FormValue("kind"), strings.TrimSpace(r.FormValue("name"))
-	if name == "" {
-		name = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(filepath.Base(header.Filename), ".map"), ".toml"), ".gametype")
+	defer r.MultipartForm.RemoveAll()
+	files := r.MultipartForm.File["file"]
+	if len(files) == 0 {
+		s.fail(w, r, "/library", core.Refuse(http.StatusBadRequest, "schema", "choose files (a folder needs JavaScript)"))
+		return
 	}
+	kind, typed := r.FormValue("kind"), strings.TrimSpace(r.FormValue("name"))
 	dir := filepath.Join(s.Fleet.Config.Data, "library", "uploads")
 	os.MkdirAll(dir, 0o700)
+	var added []string
+	for _, header := range files {
+		name := typed
+		if name == "" || len(files) > 1 {
+			name = strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(filepath.Base(header.Filename), ".map"), ".toml"), ".gametype")
+		}
+		item, err := s.addUploaded(r, dir, header, kind, name)
+		if err != nil {
+			message := strings.Join(added, ", ")
+			if message != "" {
+				message = " (added before it: " + message + ")"
+			}
+			s.fail(w, r, "/library", core.Refuse(http.StatusBadRequest, "schema", "%s: %v%s", header.Filename, err, message))
+			return
+		}
+		added = append(added, item.Name)
+	}
+	if len(added) == 1 {
+		s.done(w, r, "/library", added[0]+" is in the library.")
+		return
+	}
+	s.done(w, r, "/library", fmt.Sprintf("%d items are in the library: %s.", len(added), strings.Join(added, ", ")))
+}
+
+// addUploaded keeps one file of the form as a library item.
+func (s *Server) addUploaded(r *http.Request, dir string, header *multipart.FileHeader, kind, name string) (db.Library, error) {
+	file, err := header.Open()
+	if err != nil {
+		return db.Library{}, err
+	}
+	defer file.Close()
 	temp, err := os.CreateTemp(dir, "form-*.part")
 	if err != nil {
-		s.fail(w, r, "/library", err)
-		return
+		return db.Library{}, err
 	}
 	_, err = io.Copy(temp, file)
 	temp.Close()
 	if err != nil {
 		os.Remove(temp.Name())
-		s.fail(w, r, "/library", err)
-		return
+		return db.Library{}, err
 	}
 	item, err := s.Fleet.AddItem(r.Context(), s.actor(r), kind, name, temp.Name(), false)
 	if err != nil {
 		os.Remove(temp.Name())
-		s.fail(w, r, "/library", err)
-		return
 	}
-	s.done(w, r, "/library", item.Name+" is in the library ("+view.Bytes(item.Size)+").")
+	return item, err
 }
 
 // startUpload begins a resumable upload: {kind, name, size, sha256} →

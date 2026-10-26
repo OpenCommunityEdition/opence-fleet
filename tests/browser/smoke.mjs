@@ -13,7 +13,7 @@
 // (with Playwright where Node finds it: npm ci in tests/browser, or NODE_PATH)
 
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -204,6 +204,27 @@ try {
   const after = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   check('the theme switches', before !== after, `${before} → ${after}`);
   await shot('console-other-theme');
+
+  // the library: several maps at once, then a whole folder (each file by
+  // its folder; those the library has already counted, not sent again)
+  const mapsDir = path.join(work, 'gamedata', 'maps');
+  const maps = readdirSync(mapsDir).filter((f) => f.endsWith('.map')).sort();
+  await page.goto(`${base}/library`);
+  await page.selectOption('form[data-upload] select[name=kind]', 'map');
+  await page.setInputFiles('form[data-upload] input[name=file]', maps.slice(0, 3).map((f) => path.join(mapsDir, f)));
+  await page.click('form[data-upload] button[type=submit]');
+  await until('three maps uploaded at once', async () =>
+    /^3 added\./.test(await page.textContent('[data-upload-words]')), 30000);
+  await page.goto(`${base}/library`);
+  await page.setInputFiles('form[data-upload] input[name=folder]', path.join(work, 'gamedata'));
+  await page.click('form[data-upload] button[type=submit]');
+  await until('a folder of maps uploaded', async () =>
+    new RegExp(`^${maps.length - 3} added, 3 the library had already\\.`).test(await page.textContent('[data-upload-words]')),
+    60000);
+  await page.goto(`${base}/library`);
+  const listed = await page.textContent('body');
+  check('every map is in the library', maps.every((f) => listed.includes(f.replace(/\.map$/, ''))), maps.join(' '));
+  await shot('library');
 
   // the other pages, each once
   for (const p of ['/nodes', '/profiles', '/players', '/bans', '/library', '/releases', '/jobs', '/schedules', '/alerts',

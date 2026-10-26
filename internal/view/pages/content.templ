@@ -58,7 +58,7 @@ templ Library(p view.Page, items []LibraryItem, missing map[string][]string) {
 			</div>
 			if p.Can("admin") {
 				<div class="grid gap-4 lg:grid-cols-2">
-					@parts.Card("Upload", "A map (maps/), a Custom Edition map or resource map (custom_maps/), a gametype file. Large files resume where they stopped (with JavaScript).") {
+					@parts.Card("Upload", "Maps (maps/), Custom Edition maps or resource maps (custom_maps/), gametype files: several at once, or a whole folder. Large files resume where they stopped (with JavaScript).") {
 						@parts.Pad() {
 							<form method="post" action="/library/upload" enctype="multipart/form-data" class="space-y-3" data-upload>
 								@parts.CSRF(p.CSRF)
@@ -70,9 +70,16 @@ templ Library(p view.Page, items []LibraryItem, missing map[string][]string) {
 										<option value="gametype">a gametype file (.toml)</option>
 										<option value="saved_gametype">a saved gametype (.gametype)</option>
 									</select>
-									<input name="name" class={ view.Input } placeholder="its name (else the file's)"/>
+									<input name="name" class={ view.Input } placeholder="its name (one file; else the file's)"/>
 								</div>
-								<input type="file" name="file" required class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink"/>
+								<label class="block space-y-1">
+									<span class="text-xs text-muted">Files, of the kind chosen above</span>
+									<input type="file" name="file" multiple class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink"/>
+								</label>
+								<label class="block space-y-1">
+									<span class="text-xs text-muted">Or a whole folder (the game's, or its maps/, custom_maps/ or gametypes/): each file's kind is its folder's</span>
+									<input type="file" name="folder" webkitdirectory class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink" data-upload-folder/>
+								</label>
 								<div class="hidden h-1.5 overflow-hidden rounded-full bg-raised" data-upload-bar><div class="h-full w-0 bg-accent" data-upload-fill></div></div>
 								<p class="text-xs text-muted" data-upload-words></p>
 								<button type="submit" class={ view.Primary }>

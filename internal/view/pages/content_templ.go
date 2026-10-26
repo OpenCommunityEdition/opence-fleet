@@ -688,7 +688,7 @@ func Library(p view.Page, items []LibraryItem, missing map[string][]string) temp
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" placeholder=\"its name (else the file's)\"></div><input type=\"file\" name=\"file\" required class=\"block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink\"><div class=\"hidden h-1.5 overflow-hidden rounded-full bg-raised\" data-upload-bar><div class=\"h-full w-0 bg-accent\" data-upload-fill></div></div><p class=\"text-xs text-muted\" data-upload-words></p>")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" placeholder=\"its name (one file; else the file's)\"></div><label class=\"block space-y-1\"><span class=\"text-xs text-muted\">Files, of the kind chosen above</span> <input type=\"file\" name=\"file\" multiple class=\"block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink\"></label> <label class=\"block space-y-1\"><span class=\"text-xs text-muted\">Or a whole folder (the game's, or its maps/, custom_maps/ or gametypes/): each file's kind is its folder's</span> <input type=\"file\" name=\"folder\" webkitdirectory class=\"block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink\" data-upload-folder></label><div class=\"hidden h-1.5 overflow-hidden rounded-full bg-raised\" data-upload-bar><div class=\"h-full w-0 bg-accent\" data-upload-fill></div></div><p class=\"text-xs text-muted\" data-upload-words></p>")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -730,7 +730,7 @@ func Library(p view.Page, items []LibraryItem, missing map[string][]string) temp
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = parts.Card("Upload", "A map (maps/), a Custom Edition map or resource map (custom_maps/), a gametype file. Large files resume where they stopped (with JavaScript).").Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = parts.Card("Upload", "Maps (maps/), Custom Edition maps or resource maps (custom_maps/), gametype files: several at once, or a whole folder. Large files resume where they stopped (with JavaScript).").Render(templ.WithChildren(ctx, templ_7745c5c3_Var46), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -938,7 +938,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 					var templ_7745c5c3_Var64 string
 					templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(view.Count(behind, "server runs", "servers run"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 122, Col: 61}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 129, Col: 61}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 					if templ_7745c5c3_Err != nil {
@@ -951,7 +951,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 					var templ_7745c5c3_Var65 string
 					templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(latest)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 122, Col: 94}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 129, Col: 94}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 					if templ_7745c5c3_Err != nil {
@@ -1222,7 +1222,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 						var templ_7745c5c3_Var88 string
 						templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(r.Build)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 141, Col: 19}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 148, Col: 19}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 						if templ_7745c5c3_Err != nil {
@@ -1273,7 +1273,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 						var templ_7745c5c3_Var91 string
 						templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(r.Image)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 150, Col: 19}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 157, Col: 19}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 						if templ_7745c5c3_Err != nil {
@@ -1291,7 +1291,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 							var templ_7745c5c3_Var92 string
 							templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.JoinStringErrs("@" + view.Short(r.Digest, 12))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 152, Col: 68}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 159, Col: 68}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var92))
 							if templ_7745c5c3_Err != nil {
@@ -1332,7 +1332,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 							var templ_7745c5c3_Var95 string
 							templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(view.Bytes(r.ZipSize))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 157, Col: 34}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 164, Col: 34}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 							if templ_7745c5c3_Err != nil {
@@ -1345,7 +1345,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 							var templ_7745c5c3_Var96 string
 							templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(view.Short(r.ZipSha256, 10))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 157, Col: 101}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 164, Col: 101}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 							if templ_7745c5c3_Err != nil {
@@ -1390,7 +1390,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 						var templ_7745c5c3_Var99 string
 						templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(view.Count(len(r.Running), "server", "servers"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 162, Col: 104}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 169, Col: 104}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 						if templ_7745c5c3_Err != nil {
@@ -1425,7 +1425,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 						var templ_7745c5c3_Var102 string
 						templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(view.Unix(r.ResolvedAt, p.Zone))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 163, Col: 98}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 170, Col: 98}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 						if templ_7745c5c3_Err != nil {
@@ -1465,7 +1465,7 @@ func Releases(p view.Page, releases []ReleaseLine, image string, latest string, 
 							var templ_7745c5c3_Var105 templ.SafeURL
 							templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(r.NotesUrl))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 166, Col: 46}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 173, Col: 46}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
 							if templ_7745c5c3_Err != nil {
@@ -1846,7 +1846,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 					var templ_7745c5c3_Var126 string
 					templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(m.URL)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 234, Col: 18}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 241, Col: 18}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 					if templ_7745c5c3_Err != nil {
@@ -1956,7 +1956,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 							var templ_7745c5c3_Var131 string
 							templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(k.Cached)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 257, Col: 56}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 264, Col: 56}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 							if templ_7745c5c3_Err != nil {
@@ -2001,7 +2001,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 								var templ_7745c5c3_Var132 string
 								templ_7745c5c3_Var132, templ_7745c5c3_Err = templ.JoinStringErrs(m.URL)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 273, Col: 43}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 280, Col: 43}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var132))
 								if templ_7745c5c3_Err != nil {
@@ -2024,7 +2024,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 								var templ_7745c5c3_Var133 string
 								templ_7745c5c3_Var133, templ_7745c5c3_Err = templ.JoinStringErrs(me.Words())
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 278, Col: 56}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 285, Col: 56}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var133))
 								if templ_7745c5c3_Err != nil {
@@ -2047,7 +2047,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 										var templ_7745c5c3_Var134 templ.SafeURL
 										templ_7745c5c3_Var134, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/servers/" + srv.Instance))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 285, Col: 82}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 292, Col: 82}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var134))
 										if templ_7745c5c3_Err != nil {
@@ -2060,7 +2060,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 										var templ_7745c5c3_Var135 string
 										templ_7745c5c3_Var135, templ_7745c5c3_Err = templ.JoinStringErrs(srv.Instance)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 285, Col: 99}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 292, Col: 99}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var135))
 										if templ_7745c5c3_Err != nil {
@@ -2083,7 +2083,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 											var templ_7745c5c3_Var136 string
 											templ_7745c5c3_Var136, templ_7745c5c3_Err = templ.JoinStringErrs(srv.HiddenReason)
 											if templ_7745c5c3_Err != nil {
-												return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 290, Col: 66}
+												return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 297, Col: 66}
 											}
 											_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var136))
 											if templ_7745c5c3_Err != nil {
@@ -2106,7 +2106,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 										var templ_7745c5c3_Var137 string
 										templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinStringErrs(srv.Probe)
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 295, Col: 53}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 302, Col: 53}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 										if templ_7745c5c3_Err != nil {
@@ -2119,7 +2119,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 										var templ_7745c5c3_Var138 string
 										templ_7745c5c3_Var138, templ_7745c5c3_Err = templ.JoinStringErrs(view.Itoa(srv.Players))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 296, Col: 79}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 303, Col: 79}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var138))
 										if templ_7745c5c3_Err != nil {
@@ -2132,7 +2132,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 										var templ_7745c5c3_Var139 string
 										templ_7745c5c3_Var139, templ_7745c5c3_Err = templ.JoinStringErrs(view.Itoa(srv.MaxPlayers))
 										if templ_7745c5c3_Err != nil {
-											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 296, Col: 109}
+											return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 303, Col: 109}
 										}
 										_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var139))
 										if templ_7745c5c3_Err != nil {
@@ -2165,7 +2165,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 								var templ_7745c5c3_Var140 templ.SafeURL
 								templ_7745c5c3_Var140, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/masters/keys/" + k.KeyID + "/sign"))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 313, Col: 88}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 320, Col: 88}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var140))
 								if templ_7745c5c3_Err != nil {
@@ -2204,7 +2204,7 @@ func Masters(p view.Page, keys []KeyView, masters []master.Master) templ.Compone
 								var templ_7745c5c3_Var143 string
 								templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.ResolveAttributeValue(k.Nonce)
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 315, Col: 120}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/view/pages/content.templ`, Line: 322, Col: 120}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var143)
 								if templ_7745c5c3_Err != nil {
