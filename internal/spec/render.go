@@ -103,6 +103,10 @@ func Environment(in Input) map[string]string {
 	}
 	if address := strings.TrimSpace(in.PublicAddress); address != "" {
 		env["HALO_NET_PUBLIC_ADDRESS"] = PublicAddress(address, in.TunnelPort)
+		// (and to the masters, whose probe then asks it rather than the
+		// address a publish came from: a node behind a NAT, or on the
+		// master's own machine, whose publishes come from a private one)
+		env["HALO_SERVER_MASTER_PUBLISH_ADDRESS"] = "true"
 	}
 	return env
 }

@@ -36,11 +36,10 @@ const (
 	LabelNode       = "opence-fleet.node"
 )
 
-// The ports inside the image.
-const (
-	tunnelPort = 2302
-	webPort    = 8080
-)
+// The web port inside the image. (The tunnel's is the instance's own, the
+// same inside and out: the server tells the masters the port its socket
+// has, which their probe and its players reach.)
+const webPort = 8080
 
 // CosignIdentity is the server image's signer: the game's image workflow.
 const CosignIdentity = `^https://github\.com/OpenCommunityEdition/OpenCE/\.github/workflows/server-image\.yml@`
@@ -213,10 +212,10 @@ func Config(instance spec.Instance, node spec.Node, paths runtime.Paths, ref, ru
 		env["HALO_NET_ADDRESS"] = fmt.Sprintf("127.0.0.%d", instance.Loopback)
 		env["HALO_NET_BROADCAST"] = "127.0.0.1"
 	} else {
-		env["HALO_NET_TUNNEL_PORT"] = strconv.Itoa(tunnelPort)
+		env["HALO_NET_TUNNEL_PORT"] = strconv.Itoa(instance.TunnelPort)
 		env["HALO_SERVER_WEB_PORT"] = strconv.Itoa(webPort)
 		env["HALO_SERVER_WEB_BIND"] = "0.0.0.0"
-		udp, tcp := fmt.Sprintf("%d/udp", tunnelPort), fmt.Sprintf("%d/tcp", webPort)
+		udp, tcp := fmt.Sprintf("%d/udp", instance.TunnelPort), fmt.Sprintf("%d/tcp", webPort)
 		config.ExposedPorts = map[string]struct{}{udp: {}, tcp: {}}
 		h.PortBindings = map[string][]dockerapi.PortBinding{
 			udp: {{HostPort: strconv.Itoa(instance.TunnelPort)}},

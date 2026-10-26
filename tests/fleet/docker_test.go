@@ -131,12 +131,21 @@ func TestDockerRuntime(t *testing.T) {
 			t.Fatalf("/state is not mounted: %+v", c.Mounts)
 		}
 		web := c.HostConfig.PortBindings["8080/tcp"]
-		tunnel := c.HostConfig.PortBindings["2302/udp"]
+		// (the tunnel's port the same inside and out: the one the server
+		// tells the masters)
+		tunnel := c.HostConfig.PortBindings[itoa(i.TunnelPort)+"/udp"]
 		if len(web) != 1 || web[0].HostIP != "127.0.0.1" || web[0].HostPort != itoa(i.WebPort) {
 			t.Fatalf("web port %+v (want 127.0.0.1:%d)", web, i.WebPort)
 		}
 		if len(tunnel) != 1 || tunnel[0].HostPort != itoa(i.TunnelPort) {
 			t.Fatalf("tunnel port %+v (want %d)", tunnel, i.TunnelPort)
+		}
+		listens := false
+		for _, e := range c.Config.Env {
+			listens = listens || e == "HALO_NET_TUNNEL_PORT="+itoa(i.TunnelPort)
+		}
+		if !listens {
+			t.Fatalf("the server does not listen on its published tunnel port %d: %v", i.TunnelPort, c.Config.Env)
 		}
 	})
 
