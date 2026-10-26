@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: sqlite
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: db
+        out: db
+        emit_pointers_for_null_types: true
+        emit_empty_slices: true

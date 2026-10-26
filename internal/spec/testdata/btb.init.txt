@@ -1,0 +1,2 @@
+sv_map bloodgulch ctf
+say hello

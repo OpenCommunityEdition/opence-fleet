@@ -1,0 +1,289 @@
+package parts
+
+import "github.com/OpenCommunityEdition/opence-fleet/internal/view"
+
+// Card is a panel with a title, a line under it and actions (none if empty).
+templ Card(title, subtitle string) {
+	<section class="rounded-lg border border-line bg-panel">
+		if title != "" {
+			<div class="flex flex-wrap items-center gap-3 px-4 py-3">
+				<div class="min-w-0">
+					<h2 class="text-base font-semibold">{ title }</h2>
+					if subtitle != "" {
+						<p class="text-xs text-faint">{ subtitle }</p>
+					}
+				</div>
+			</div>
+		}
+		{ children... }
+	</section>
+}
+
+// Pad is a card's padded body.
+templ Pad() {
+	<div class="border-t border-line px-4 py-4">
+		{ children... }
+	</div>
+}
+
+// Tile is a stat tile: a label, a big number, a line under it.
+templ Tile(label, value, of, line string, tone view.Tone) {
+	<div class="rounded-lg border border-line bg-panel p-5">
+		<div class="text-xs tracking-wide text-muted uppercase">{ label }</div>
+		<div class={ "mt-1 text-3xl font-semibold tabular-nums", templ.KV("text-bad", tone == view.Bad) }>
+			{ value }
+			if of != "" {
+				<span class="text-lg text-faint">{ of }</span>
+			}
+		</div>
+		<div class={ "mt-2 truncate text-xs", templ.KV("text-bad", tone == view.Bad), templ.KV("text-muted", tone != view.Bad) }>{ line }</div>
+	</div>
+}
+
+// SparkTile is a stat tile with a sparkline.
+templ SparkTile(label, value, line string, points string) {
+	<div class="rounded-lg border border-line bg-panel p-5">
+		<div class="text-xs tracking-wide text-muted uppercase">{ label }</div>
+		<div class="mt-1 flex items-end justify-between gap-2">
+			<div class="text-3xl font-semibold tabular-nums">{ value }</div>
+			if points != "" {
+				<svg viewBox="0 0 120 32" class="h-8 w-28 text-accent" preserveAspectRatio="none" aria-hidden="true">
+					<polyline fill="none" stroke="currentColor" stroke-width="1.5" points={ points }></polyline>
+				</svg>
+			}
+		</div>
+		<div class="mt-2 truncate text-xs text-muted">{ line }</div>
+	</div>
+}
+
+// State is a state's badge.
+templ State(state string, tone view.Tone) {
+	<span class={ view.Badge(tone) }>
+		<span class={ view.Dot(tone), templ.KV("pulse", tone == view.Accent) }></span>
+		{ state }
+	</span>
+}
+
+// Bar is players of their most, as a thin bar with the count.
+templ Bar(players, most int, show bool) {
+	if show {
+		<div class="flex justify-between text-xs tabular-nums"><span>{ view.Itoa(players) } / { view.Itoa(most) }</span></div>
+		<svg class="mt-1 block h-1.5 w-full" aria-hidden="true">
+			<rect width="100%" height="100%" rx="3" class="fill-raised"></rect>
+			<rect width={ view.Percent(players, most) + "%" } height="100%" rx="3" class="fill-accent"></rect>
+		</svg>
+	} else {
+		<div class="text-xs text-faint">—</div>
+		<svg class="mt-1 block h-1.5 w-full" aria-hidden="true"><rect width="100%" height="100%" rx="3" class="fill-raised"></rect></svg>
+	}
+}
+
+// Dots is the masters' listing of a server.
+templ Dots(dots []view.MasterDot) {
+	<span class="flex items-center gap-1">
+		if len(dots) == 0 {
+			<span class={ view.Dot(view.Neutral) } title="not listed"></span>
+		}
+		for _, d := range dots {
+			<span class={ view.Dot(d.Tone) } title={ d.Title }></span>
+		}
+	</span>
+}
+
+// the row's grid (the header's and the rows', on a wide screen; a card on a
+// phone)
+const (
+	rowGrid  = "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.8fr)_minmax(5rem,1fr)_4rem_5.5rem_4.5rem] items-center gap-3"
+	rowCells = "min-w-0 flex-1 space-y-2 md:grid md:grid-cols-[minmax(0,1.4fr)_minmax(0,1.8fr)_minmax(5rem,1fr)_4rem_5.5rem_4.5rem] md:items-center md:gap-3 md:space-y-0"
+)
+
+// RowHeader is the server rows' header.
+templ RowHeader(selectable bool) {
+	<div class="hidden border-t border-line px-4 py-1.5 text-xs tracking-wide text-faint uppercase md:flex md:items-center md:gap-3">
+		if selectable {
+			<span class="w-4"></span>
+		}
+		<div class={ rowGrid + " min-w-0 flex-1" }>
+			<span>Server</span><span>Game</span><span>Players</span><span>Masters</span><span>Release</span><span>Up</span>
+		</div>
+	</div>
+}
+
+// Row is a server's row: a card on a phone. Its cells are the live
+// fragment (instance:<slug>), so that a selection's checkbox survives it.
+templ Row(r view.ServerRow, selectable bool, csrf string) {
+	<div class="flex items-start gap-3 border-t border-line px-4 py-2.5 text-sm transition-colors hover:bg-raised md:items-center">
+		if selectable {
+			<input type="checkbox" name="slug" value={ r.Slug } form="bulk" class={ view.Check + " mt-1 md:mt-0" } aria-label={ "Select " + r.Name } data-select/>
+		}
+		@RowCells(r)
+	</div>
+}
+
+// RowCells is a row's cells (the live fragment).
+templ RowCells(r view.ServerRow) {
+	<div id={ "row-" + r.Slug } sse-swap={ "instance:" + r.Slug } hx-swap="outerHTML" class={ rowCells }>
+		<div class="min-w-0">
+			<a class="font-medium hover:text-accent" href={ templ.SafeURL("/servers/" + r.Slug) }>{ r.Name }</a>
+			if r.RestartNeeded {
+				<span class="ml-1 text-xs text-warn" title="a change waits for a restart">↻</span>
+			}
+			<div class="truncate text-xs text-faint">
+				{ r.Slug }
+				if r.TunnelPort > 0 {
+					· { view.I64(r.TunnelPort) }/udp
+				}
+				if r.Node != "" {
+					· { r.Node }
+				}
+			</div>
+		</div>
+		<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+			@State(r.State, r.Tone)
+			<span class="min-w-0 truncate text-muted" title={ r.Game }>{ r.Game }</span>
+		</div>
+		<div class="max-md:max-w-48">
+			@Bar(r.Players, r.MaxPlayers, r.Up())
+		</div>
+		<div class="max-md:inline-block">
+			@Dots(r.Masters)
+		</div>
+		<div class="text-muted tabular-nums max-md:inline-block max-md:pl-3">
+			if r.Build != "" {
+				{ r.Build }
+			} else {
+				—
+			}
+			if r.UpdateAvailable {
+				<span class="text-info" title="a newer release is out">↑</span>
+			}
+		</div>
+		<div class="text-muted tabular-nums max-md:inline-block max-md:pl-3">{ r.Uptime }</div>
+	</div>
+}
+
+// Feed is the feed's lines (the live stream adds to its top).
+templ Feed(lines []view.FeedLine, event string, empty string) {
+	<ol class="mt-3 space-y-2.5 text-sm" sse-swap={ event } hx-swap="afterbegin">
+		if len(lines) == 0 {
+			<li class="text-faint">{ empty }</li>
+		}
+		for _, l := range lines {
+			@FeedItem(l)
+		}
+	</ol>
+}
+
+// FeedItem is a line of the feed.
+templ FeedItem(l view.FeedLine) {
+	<li class="flex gap-2">
+		<span class="shrink-0 text-faint tabular-nums">{ l.Time }</span>
+		<span class="min-w-0">
+			if l.Slug != "" {
+				<a class="text-ink hover:text-accent" href={ templ.SafeURL("/servers/" + l.Slug) }>{ l.Server }</a>
+			}
+			<span class={ templ.KV("text-muted", l.Tone == view.Neutral || l.Tone == view.Info), templ.KV("text-bad", l.Tone == view.Bad),
+				templ.KV("text-warn", l.Tone == view.Warn), templ.KV("text-ok", l.Tone == view.OK) }>{ l.Text }</span>
+		</span>
+	</li>
+}
+
+// Empty is a list's "nothing here", with the action that fills it.
+templ Empty(text string) {
+	<div class="border-t border-line px-4 py-10 text-center text-sm text-muted">
+		<p>{ text }</p>
+		<div class="mt-3 flex justify-center gap-2">
+			{ children... }
+		</div>
+	</div>
+}
+
+// Field is a form's field: its label, the input (children), a hint.
+templ Field(id, label, hint string) {
+	<div class="space-y-1.5">
+		<label for={ id } class={ view.Label }>{ label }</label>
+		{ children... }
+		if hint != "" {
+			<p class={ view.Hint }>{ hint }</p>
+		}
+	</div>
+}
+
+// KV is a list of names and values.
+templ KV() {
+	<dl class="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr] sm:gap-y-2.5">
+		{ children... }
+	</dl>
+}
+
+// Item is a name and its value, in KV.
+templ Item(name string) {
+	<dt class="text-muted max-sm:mt-2">{ name }</dt>
+	<dd class="min-w-0 break-words">
+		{ children... }
+	</dd>
+}
+
+// Tab is a tab of a page's tabs.
+type Tab struct {
+	ID, Name, Path string
+}
+
+// Tabs is a page's tabs, the current one marked (they scroll on a phone).
+templ Tabs(tabs []Tab, current string) {
+	<nav class="-mb-px flex gap-1 overflow-x-auto border-b border-line px-4 lg:px-6" aria-label="Tabs">
+		for _, t := range tabs {
+			<a
+				href={ templ.SafeURL(t.Path) }
+				class={ "shrink-0 border-b-2 px-3 py-2.5 text-sm transition",
+					templ.KV("border-accent text-ink", t.ID == current),
+					templ.KV("border-transparent text-muted hover:text-ink", t.ID != current) }
+				if t.ID == current {
+					aria-current="page"
+				}
+			>{ t.Name }</a>
+		}
+	</nav>
+}
+
+// Confirm is a destructive action behind a disclosure: what it does, to
+// how many, and the red button (no JavaScript needed).
+templ Confirm(label, words, action, button, csrf string) {
+	<details class="group relative">
+		<summary class={ view.Secondary + " list-none [&::-webkit-details-marker]:hidden" }>{ label }</summary>
+		<div class="absolute right-0 z-30 mt-2 w-72 rounded-lg border border-line-strong bg-panel p-4 shadow-2xl shadow-black/50 max-sm:fixed max-sm:inset-x-3 max-sm:bottom-20 max-sm:w-auto">
+			<p class="text-sm">{ words }</p>
+			<form method="post" action={ templ.SafeURL(action) } class="mt-3 flex justify-end gap-2">
+				@CSRF(csrf)
+				{ children... }
+				<button type="submit" class={ view.Danger }>{ button }</button>
+			</form>
+		</div>
+	</details>
+}
+
+// Post is a button that posts a form (an action without a confirmation).
+templ Post(action, label, class, csrf string) {
+	<form method="post" action={ templ.SafeURL(action) } class="inline">
+		@CSRF(csrf)
+		{ children... }
+		<button type="submit" class={ class }>{ label }</button>
+	</form>
+}
+
+// Copy is a value with a copy button (the button needs JavaScript; the
+// value is selectable without it).
+templ Copy(value string) {
+	<div class="flex items-stretch gap-2">
+		<code class="block min-w-0 flex-1 overflow-x-auto rounded-md border border-line bg-raised px-3 py-2 text-xs whitespace-pre select-all">{ value }</code>
+		<button type="button" class={ view.Secondary + view.Small } data-copy={ value } hidden>
+			@Icon("copy", "size-3.5")
+			Copy
+		</button>
+	</div>
+}
+
+// Badge is a word in a pill.
+templ Badge(tone view.Tone, text string) {
+	<span class={ view.Badge(tone) }>{ text }</span>
+}

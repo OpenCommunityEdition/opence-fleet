@@ -31,3 +31,21 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# opence-fleet
+/opence-fleet
+/bin/
+/fleet-data/
+/agent-data/
+*.db
+*.db-shm
+*.db-wal
+*.db.before-*
+*.db.version
+fleet.key
+fleet.env
+agent.env
+node_modules/
+/tests/e2e/work/
+/tests/browser/artifacts/
+/dev/

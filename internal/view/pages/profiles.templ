@@ -1,0 +1,276 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/spec"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// ProfileLine is a profile on the profiles page.
+type ProfileLine struct {
+	core.Profile
+	Followers int
+	Missing   []string
+}
+
+// Profiles is the profiles' list.
+templ Profiles(p view.Page, list []ProfileLine) {
+	@parts.Shell(p) {
+		@parts.Head("Profiles", "What kind of server: its settings, rotation, gametypes and release. A change reaches every server that follows it.") {
+			if p.Can("admin") {
+				<a href="/profiles/new" class={ view.Primary }>
+					@parts.Icon("plus", "size-4")
+					New profile
+				</a>
+			}
+		}
+		@parts.Body() {
+			<div class={ view.Panel }>
+				if len(list) == 0 {
+					@parts.Empty("No profile yet: a profile says what kind of server to make (BTB CTF EU, Small Slayer, Co-op Night).") {
+						if p.Can("admin") {
+							<a href="/profiles/new" class={ view.Primary }>New profile</a>
+						}
+					}
+				}
+				for _, pr := range list {
+					<a href={ templ.SafeURL("/profiles/" + view.I64(pr.ID)) } class="block border-t border-line px-4 py-3 first:border-t-0 hover:bg-raised">
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="font-medium">{ pr.Name }</span>
+							<span class="text-xs text-faint">{ view.Count(pr.Followers, "server", "servers") } · { pr.Channel }</span>
+							if pr.Region != "" {
+								@parts.Badge(view.Neutral, pr.Region)
+							}
+						</div>
+						<div class="mt-1 truncate text-sm text-muted">{ rotationText(pr.Rotation) }</div>
+						if len(pr.Missing) > 0 {
+							<div class="mt-1 text-xs text-bad">The library lacks { view.Join(pr.Missing, ", ") }</div>
+						}
+					</a>
+				}
+			</div>
+		}
+	}
+}
+
+func rotationText(text string) string {
+	entries := spec.RotationEntries(text)
+	if len(entries) == 0 {
+		return "the server's default rotation"
+	}
+	return view.Join(entries, " · ")
+}
+
+// ProfileEdit is a profile's form.
+type ProfileEdit struct {
+	ID        int64
+	New       bool
+	Profile   core.Profile
+	Followers []string
+	Keys      []Option
+	Channels  []string
+	Missing   []string
+}
+
+// Profile is a profile's page: its settings form (the game's settings,
+// grouped), the rotation, the gametype files, the release and the policy.
+templ Profile(p view.Page, e ProfileEdit) {
+	@parts.Shell(p) {
+		if e.New {
+			@parts.Head("New profile", "")
+		} else {
+			@parts.Head(e.Profile.Name, view.Count(len(e.Followers), "server follows it", "servers follow it")) {
+				if p.Can("admin") {
+					@parts.Post("/profiles/"+view.I64(e.ID)+"/duplicate", "Duplicate", view.Secondary, p.CSRF)
+					@parts.Confirm("Delete…", "Delete the profile "+e.Profile.Name+" (refused while servers follow it).", "/profiles/"+view.I64(e.ID)+"/delete", "Delete it", p.CSRF)
+				}
+			}
+		}
+		@parts.Body() {
+			if len(e.Missing) > 0 {
+				<div class="rounded-md border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm">
+					The library lacks what this rotation plays: { view.Join(e.Missing, ", ") }. <a href="/library">Add them</a>, or a node's own data folder must have them.
+				</div>
+			}
+			<form method="post" action={ templ.SafeURL(profileAction(e)) } class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+				@parts.CSRF(p.CSRF)
+				<div class="space-y-4">
+					@parts.Card("The profile", "") {
+						@parts.Pad() {
+							<div class="grid gap-4 md:grid-cols-2">
+								@parts.Field("name", "Name", "") {
+									<input id="name" name="name" class={ view.Input } value={ e.Profile.Name } required maxlength="64"/>
+								}
+								@parts.Field("region", "Region", "Shown in the server browser: eu, na-east…") {
+									<input id="region" name="region" class={ view.Input } value={ e.Profile.Region } maxlength="16"/>
+								}
+								<div class="md:col-span-2">
+									@parts.Field("description", "Description", "") {
+										<input id="description" name="description" class={ view.Input } value={ e.Profile.Description }/>
+									}
+								</div>
+							</div>
+						}
+					}
+					@parts.Card("Rotation", "map[:gametype[+rule=value…]], separated by commas or lines; # starts a comment. Empty: the server's own.") {
+						@parts.Pad() {
+							<textarea name="rotation" rows="6" class={ view.TextArea } placeholder="bloodgulch:ctf, sidewinder:team_slayer+score=50">{ e.Profile.Rotation }</textarea>
+						}
+					}
+					for _, group := range spec.Groups() {
+						@parts.Card(group, "") {
+							@parts.Pad() {
+								<div class="grid gap-4 md:grid-cols-2">
+									for _, s := range spec.Settings {
+										if s.Group == group && !s.Secret {
+											@SettingInput(s, e.Profile.Settings[s.Name])
+										}
+									}
+								</div>
+							}
+						}
+					}
+					@parts.Card("init.txt", "Commands run at each start (sv_map bloodgulch ctf, say …).") {
+						@parts.Pad() {
+							<textarea name="init_txt" rows="4" class={ view.TextArea }>{ e.Profile.InitTxt }</textarea>
+						}
+					}
+				</div>
+				<div class="space-y-4">
+					@parts.Card("Release", "") {
+						@parts.Pad() {
+							<select name="channel" class={ view.Select }>
+								<option value="latest" selected?={ e.Profile.Channel == "latest" || e.Profile.Channel == "" }>latest</option>
+								for _, c := range e.Channels {
+									<option value={ c } selected?={ e.Profile.Channel == c }>{ c }</option>
+								}
+							</select>
+							<p class="mt-2 text-xs text-muted">latest moves with the project's releases; an update restarts the servers once their games end (Releases).</p>
+						}
+					}
+					@parts.Card("Join password", "") {
+						@parts.Pad() {
+							<div class="space-y-2 text-sm">
+								<label class="flex items-center gap-2"><input type="radio" name="password_policy" value="none" checked?={ e.Profile.PasswordPolicy == "none" || e.Profile.PasswordPolicy == "" }/> None</label>
+								<label class="flex items-center gap-2"><input type="radio" name="password_policy" value="fixed" checked?={ e.Profile.PasswordPolicy == "fixed" }/> This password:</label>
+								<input name="password" type="password" class={ view.Input } placeholder="unchanged" autocomplete="new-password"/>
+								<label class="flex items-center gap-2"><input type="radio" name="password_policy" value="per_instance" checked?={ e.Profile.PasswordPolicy == "per_instance" }/> One for each server (shown to admins)</label>
+							</div>
+						}
+					}
+					@parts.Card("Publisher key", "The key its servers publish with to the masters.") {
+						@parts.Pad() {
+							<select name="key_id" class={ view.Select }>
+								<option value="">the fleet's default</option>
+								for _, k := range e.Keys {
+									<option value={ k.Value } selected?={ view.Deref(e.Profile.KeyID) == k.Value }>{ k.Name }</option>
+								}
+							</select>
+						}
+					}
+					if p.Can("admin") {
+						<div class="sticky bottom-20 lg:bottom-4">
+							<button type="submit" class={ view.Primary + " w-full !py-2" }>
+								if e.New {
+									Make the profile
+								} else {
+									Save, and apply to { view.Count(len(e.Followers), "server", "servers") }
+								}
+							</button>
+							if !e.New {
+								<p class="mt-2 text-xs text-muted">The servers take what they can live (settings, rotation, gametypes); the rest waits for a restart.</p>
+							}
+						</div>
+					}
+					if len(e.Followers) > 0 {
+						@parts.Card("Followers", "") {
+							<ul class="border-t border-line text-sm">
+								for _, f := range e.Followers {
+									<li class="border-b border-line px-4 py-1.5 last:border-b-0"><a href={ templ.SafeURL("/servers/" + f) }>{ f }</a></li>
+								}
+							</ul>
+						}
+					}
+				</div>
+			</form>
+			if !e.New {
+				@ProfileGametypes(p, e)
+			}
+		}
+	}
+}
+
+func profileAction(e ProfileEdit) string {
+	if e.New {
+		return "/profiles"
+	}
+	return "/profiles/" + view.I64(e.ID)
+}
+
+// SettingInput is a game setting's input, from the settings' table.
+templ SettingInput(s spec.Setting, value any) {
+	{{ id := "s-" + s.Name }}
+	{{ text := spec.SettingText(value) }}
+	<div class="space-y-1.5">
+		<label for={ id } class={ view.Label }>
+			<span class="font-mono text-xs">{ s.Name }</span>
+			if !s.Live {
+				<span class="ml-1 text-xs font-normal text-faint">at a restart</span>
+			}
+		</label>
+		if len(s.Choices) > 0 {
+			<select id={ id } name={ "setting." + s.Name } class={ view.Select }>
+				<option value="" selected?={ text == "" }>default ({ spec.SettingText(s.Default) })</option>
+				for _, c := range s.Choices {
+					<option value={ c } selected?={ c == text }>{ c }</option>
+				}
+			</select>
+		} else if s.Type == "boolean" {
+			<select id={ id } name={ "setting." + s.Name } class={ view.Select }>
+				<option value="" selected?={ text == "" }>default ({ spec.SettingText(s.Default) })</option>
+				<option value="true" selected?={ text == "true" }>true</option>
+				<option value="false" selected?={ text == "false" }>false</option>
+			</select>
+		} else {
+			<input id={ id } name={ "setting." + s.Name } class={ view.Input } value={ text } placeholder={ "default: " + spec.SettingText(s.Default) }/>
+		}
+		<p class={ view.Hint + " line-clamp-2" } title={ s.Comment }>{ s.Comment }</p>
+	</div>
+}
+
+// ProfileGametypes is a profile's gametype files.
+templ ProfileGametypes(p view.Page, e ProfileEdit) {
+	@parts.Card("Gametype files", "gametypes/<name>.toml beside each server's config.toml: a built-in or OpenCE gametype (base) and rules over it.") {
+		<ul class="border-t border-line text-sm">
+			for _, name := range view.Sorted(e.Profile.Gametypes) {
+				<li class="border-b border-line px-4 py-3">
+					<form method="post" action={ templ.SafeURL("/profiles/" + view.I64(e.ID) + "/gametypes") } class="space-y-2">
+						@parts.CSRF(p.CSRF)
+						<input type="hidden" name="name" value={ name }/>
+						<div class="flex items-center gap-2">
+							<span class="font-mono font-medium">{ name }.toml</span>
+						</div>
+						<textarea name="text" rows="6" class={ view.TextArea }>{ e.Profile.Gametypes[name] }</textarea>
+						if p.Can("admin") {
+							<div class="flex gap-2">
+								<button type="submit" class={ view.Secondary + view.Small }>Save { name }</button>
+								<button type="submit" formaction={ templ.SafeURL("/profiles/" + view.I64(e.ID) + "/gametypes/" + name + "/delete") } class={ view.Secondary + view.Small }>Delete it</button>
+							</div>
+						}
+					</form>
+				</li>
+			}
+		</ul>
+		if p.Can("admin") {
+			<form method="post" action={ templ.SafeURL("/profiles/" + view.I64(e.ID) + "/gametypes") } class="space-y-2 border-t border-line px-4 py-4">
+				@parts.CSRF(p.CSRF)
+				<div class="flex gap-2">
+					<input name="name" class={ view.Input + " !w-60" } placeholder="btb_slayer" pattern="[a-z0-9_-]{1,32}" required/>
+					<button type="submit" class={ view.Primary }>Add the file</button>
+				</div>
+				<textarea name="text" rows="6" class={ view.TextArea } placeholder={ "base = \"team_slayer\"\nname = \"Big Team\"\n\n[universal]\nscore_to_win = 50" } required></textarea>
+			</form>
+		}
+	}
+}

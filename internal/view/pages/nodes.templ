@@ -1,0 +1,200 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// Nodes is the nodes' cards.
+templ Nodes(p view.Page, cards []view.NodeCard) {
+	@parts.Shell(p) {
+		@parts.Head("Nodes", "The machines that run the servers: each runs an agent, which connects out to this fleet.") {
+			if p.Can("admin") {
+				<a href="/nodes/add" class={ view.Primary }>
+					@parts.Icon("plus", "size-4")
+					Add a node
+				</a>
+			}
+		}
+		@parts.Body() {
+			if len(cards) == 0 {
+				@parts.Card("", "") {
+					@parts.Empty("No node yet. A node is a Linux machine with Docker (or the 32-bit C runtime) that runs the servers.") {
+						if p.Can("admin") {
+							<a href="/nodes/add" class={ view.Primary }>Add a node</a>
+						}
+					}
+				}
+			}
+			<div class="grid gap-4 lg:grid-cols-2">
+				for _, c := range cards {
+					@NodeCardView(c)
+				}
+			</div>
+		}
+	}
+}
+
+// NodeCardView is a node's card (the live fragment node:<name>).
+templ NodeCardView(c view.NodeCard) {
+	<a id={ "node-card-" + c.Name } sse-swap={ "node:" + c.Name } hx-swap="outerHTML" href={ templ.SafeURL("/nodes/" + c.Name) } class="block rounded-lg border border-line bg-panel p-5 transition hover:border-line-strong">
+		<div class="flex flex-wrap items-center gap-2">
+			<h2 class="text-base font-semibold">{ c.Name }</h2>
+			if c.Online {
+				@parts.State("online", view.OK)
+			} else {
+				@parts.State("offline", view.Bad)
+			}
+			<span class="ml-auto text-xs text-faint">{ c.Runtime } · agent { firstOf(c.Version, "—") }</span>
+		</div>
+		<dl class="mt-4 grid grid-cols-3 gap-3 text-sm">
+			<div><dt class="text-xs text-faint">Servers</dt><dd class="tabular-nums">{ view.Itoa(c.Instances) }</dd></div>
+			<div><dt class="text-xs text-faint">Load</dt><dd class="tabular-nums">{ firstOf(c.Load, "—") }</dd></div>
+			<div><dt class="text-xs text-faint">Seen</dt><dd>{ c.LastSeen }</dd></div>
+			<div class="col-span-3 sm:col-span-1"><dt class="text-xs text-faint">Memory</dt><dd class="tabular-nums">{ firstOf(c.Memory, "—") }</dd></div>
+			<div class="col-span-3 sm:col-span-2"><dt class="text-xs text-faint">Disk</dt><dd class="tabular-nums">{ firstOf(c.Disk, "—") }</dd></div>
+		</dl>
+		if len(c.Missing) > 0 {
+			<p class="mt-3 text-sm text-bad">Missing: { view.Join(c.Missing, ", ") }</p>
+		}
+		for _, s := range c.Syncs {
+			<p class="mt-1 text-xs text-muted">{ s }</p>
+		}
+	</a>
+}
+
+// AddNode is the Add a node page: a join token and its one-liner.
+templ AddNode(p view.Page, name, command, token, expires string) {
+	@parts.Shell(p) {
+		@parts.Head("Add a node", "A Linux machine that will run servers: its agent connects out to this fleet; nothing connects in but the players.")
+		@parts.Body() {
+			if command == "" {
+				<form method="post" action="/nodes/add" class="max-w-xl space-y-4 rounded-lg border border-line bg-panel p-5">
+					@parts.CSRF(p.CSRF)
+					@parts.Field("name", "The node's name", "a-z, 0-9 and '-': its host name, say. A node enrolled again under its name keeps its servers.") {
+						<input id="name" name="name" class={ view.Input } required pattern="[a-zA-Z0-9._ -]{1,40}" placeholder="vps-fra-1"/>
+					}
+					@parts.Field("runtime", "How it runs the servers", "Containers of the project's signed server image (Docker is installed with your consent), or child processes of the release for a machine without Docker.") {
+						<select id="runtime" name="runtime" class={ view.Select }>
+							<option value="docker">Docker (recommended)</option>
+							<option value="process">Processes (no Docker)</option>
+						</select>
+					}
+					@parts.Field("public", "Its public address", "Optional: for a machine behind a NAT, the address players reach (the tunnel ports forwarded one to one).") {
+						<input id="public" name="public_address" class={ view.Input } placeholder="203.0.113.5"/>
+					}
+					<button type="submit" class={ view.Primary }>Make the one-liner</button>
+				</form>
+			} else {
+				<div class="max-w-3xl space-y-4">
+					@parts.Card("Run this on "+name, "As root (sudo). The token works once, for an hour (until "+expires+"); it is shown once.") {
+						@parts.Pad() {
+							@parts.Copy(command)
+							<p class="mt-3 text-sm text-muted">
+								The script checks the agent against the release's signed <code>SHA256SUMS</code>, installs Docker if it is missing (asking first),
+								makes the <code>opence-fleet</code> user and <code>/var/lib/opence-fleet</code>, enrols the node, and starts
+								<code>opence-fleet-agent.service</code>. The node shows on the Nodes page once its agent connects.
+							</p>
+						}
+					}
+					@parts.Card("Then", "") {
+						@parts.Pad() {
+							<ul class="list-disc space-y-1 pl-5 text-sm text-muted">
+								<li>Open the node's tunnel ports to the internet (UDP 2302–2399 by default): <code>ufw allow 2302:2399/udp</code>.</li>
+								<li>Docker's published ports bypass ufw's input chain; the servers' web ports are published on the node's loopback alone.</li>
+								<li>The node gets the game data from the library (the Library page), or uses a folder of its own (<code>FLEET_AGENT_DATA_ROOT</code>).</li>
+							</ul>
+							<p class="mt-3 text-xs text-faint">Token: <code>{ token }</code></p>
+						}
+					}
+					<a href="/nodes" class={ view.Secondary }>Back to the nodes</a>
+				</div>
+			}
+		}
+	}
+}
+
+// NodePageView is a node's page.
+templ NodePage(p view.Page, c view.NodeCard, rows []view.ServerRow, hello string) {
+	@parts.Shell(p) {
+		@parts.Head(c.Name, "A node: "+c.Runtime) {
+			if p.Can("owner") && c.Online {
+				@parts.Post("/nodes/"+c.Name+"/update", "Update the agent", view.Secondary, p.CSRF)
+			}
+			if p.Can("admin") {
+				@parts.Confirm("Forget…", "Forget "+c.Name+": its token stops working at once. A node with servers is refused: delete or move them first.", "/nodes/"+c.Name+"/forget", "Forget the node", p.CSRF)
+			}
+		}
+		@parts.Body() {
+			<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+				<div class="space-y-4">
+					@NodeCardView(c)
+					<div class={ view.Panel }>
+						<div class="px-4 py-3"><h2 class="text-base font-semibold">Servers</h2></div>
+						@parts.RowHeader(false)
+						for _, r := range rows {
+							@parts.Row(r, false, p.CSRF)
+						}
+						if len(rows) == 0 {
+							<p class="border-t border-line px-4 py-4 text-sm text-muted">None.</p>
+						}
+					</div>
+					@parts.Card("The machine", "As its agent said at its last connect.") {
+						@parts.Pad() {
+							<pre class="overflow-x-auto text-muted">{ hello }</pre>
+						}
+					}
+				</div>
+				<div class="space-y-4">
+					@parts.Card("Settings", "Sent to the agent: its servers take a change at their next restart.") {
+						@parts.Pad() {
+							<form method="post" action={ templ.SafeURL("/nodes/" + c.Name + "/settings") } class="space-y-3">
+								@parts.CSRF(p.CSRF)
+								@parts.Field("runtime", "Runtime", "") {
+									<select id="runtime" name="runtime" class={ view.Select } disabled?={ !p.Can("admin") }>
+										<option value="" selected?={ c.Settings.Runtime == "" }>the agent's own</option>
+										<option value="docker" selected?={ c.Settings.Runtime == "docker" }>docker</option>
+										<option value="process" selected?={ c.Settings.Runtime == "process" }>process</option>
+									</select>
+								}
+								@parts.Field("tunnel", "Tunnel ports (UDP)", "Open them to the internet.") {
+									<input id="tunnel" name="tunnel_ports" class={ view.Input } value={ c.Settings.TunnelPorts.String() }/>
+								}
+								@parts.Field("web", "Web ports (TCP, the node's loopback)", "") {
+									<input id="web" name="web_ports" class={ view.Input } value={ c.Settings.WebPorts.String() }/>
+								}
+								@parts.Field("public", "Public address", "Behind a NAT: the address players reach.") {
+									<input id="public" name="public_address" class={ view.Input } value={ c.Settings.PublicAddress }/>
+								}
+								<div class="grid grid-cols-2 gap-3">
+									@parts.Field("memory", "Memory a server (MB)", "0: no limit.") {
+										<input id="memory" name="memory_mb" type="number" min="0" class={ view.Input } value={ view.Itoa(c.Settings.MemoryMB) }/>
+									}
+									@parts.Field("cpus", "CPUs a server", "0: no limit.") {
+										<input id="cpus" name="cpus" type="number" min="0" step="0.25" class={ view.Input } value={ fmtFloat(c.Settings.CPUs) }/>
+									}
+								</div>
+								@parts.Field("loopback", "Loopback base", "The process runtime: 127.0.0.n for system link.") {
+									<input id="loopback" name="loopback_base" type="number" min="2" max="250" class={ view.Input } value={ view.Itoa(c.Settings.LoopbackBase) }/>
+								}
+								<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="host_network" value="1" checked?={ c.Settings.HostNetwork } class={ view.Check }/> Host networking (system link on the LAN)</label>
+								<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="web_ui" value="1" checked?={ c.Settings.WebUI } class={ view.Check }/> The servers' own web page</label>
+								<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="sync_all" value="1" checked?={ c.Settings.SyncAll } class={ view.Check }/> Sync the whole library</label>
+								if p.Can("admin") {
+									<button type="submit" class={ view.Primary }>Save</button>
+								}
+							</form>
+						}
+					}
+					if len(c.Images) > 0 {
+						@parts.Card("Builds on the node", "") {
+							@parts.Pad() {
+								<p class="text-sm text-muted">{ view.Join(c.Images, ", ") }</p>
+							}
+						}
+					}
+				</div>
+			</div>
+		}
+	}
+}

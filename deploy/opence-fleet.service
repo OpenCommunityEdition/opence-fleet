@@ -1,0 +1,65 @@
+# systemd unit for the control plane without Docker (compose.yaml is the
+# usual way: install.sh).
+#
+#   install -m 755 opence-fleet /usr/local/bin/
+#   install -m 644 deploy/opence-fleet.service /etc/systemd/system/
+#   install -d -m 700 /etc/opence-fleet
+#   cp deploy/fleet.env.example /etc/opence-fleet/fleet.env   # then fill it in, mode 600
+#   systemctl daemon-reload && systemctl enable --now opence-fleet
+#   journalctl -u opence-fleet | grep -A2 "no owner"   # the setup link
+#
+# The state (fleet.db, fleet.key, the library, the releases' zips, bin/) is
+# in /var/lib/opence-fleet/control; fleet.key is made at the first start
+# (back it up with the database: it encrypts the secrets in it). Put Caddy
+# or nginx in front for TLS and keep FLEET_TRUSTED_PROXIES at loopback (or
+# set FLEET_TLS_CERT and FLEET_TLS_KEY to serve HTTPS directly). A machine
+# that also runs servers runs an agent beside it (agent.sh, from the Add a
+# node page): the agent's node folder, /var/lib/opence-fleet, is its own.
+[Unit]
+Description=opence-fleet control plane
+Documentation=https://github.com/OpenCommunityEdition/opence-fleet
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=opence-fleet/control
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/opence-fleet/control
+Environment=FLEET_DATA=/var/lib/opence-fleet/control
+Environment=FLEET_LISTEN=127.0.0.1:8070
+Environment=FLEET_TRUSTED_PROXIES=127.0.0.1,::1
+EnvironmentFile=/etc/opence-fleet/fleet.env
+ExecStart=/usr/local/bin/opence-fleet serve
+Restart=always
+RestartSec=5
+# (the agents' connections close; they reconnect to the new process, and
+# the servers never notice)
+TimeoutStopSec=20
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

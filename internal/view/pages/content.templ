@@ -1,0 +1,362 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/master"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// LibraryItem is an item with what uses it and where it is.
+type LibraryItem struct {
+	db.Library
+	Meta  map[string]string
+	Users []string
+}
+
+// Library is the content library.
+templ Library(p view.Page, items []LibraryItem, missing map[string][]string) {
+	@parts.Shell(p) {
+		@parts.Head("Library", "The game data the servers play: the operator's own maps, served to the fleet's nodes alone.")
+		@parts.Body() {
+			if len(missing) > 0 {
+				<div class="rounded-md border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm">
+					for _, name := range view.Sorted(missing) {
+						<p>{ name } plays { view.Join(missing[name], ", ") }, which the library lacks.</p>
+					}
+				</div>
+			}
+			<div class={ view.Panel + " overflow-x-auto" }>
+				if len(items) == 0 {
+					<p class="px-4 py-8 text-center text-sm text-muted">The library is empty. Upload the maps a server needs (at least <code>maps/ui.map</code> and the multiplayer maps), or point a node at a data folder of its own.</p>
+				} else {
+					<table class="w-full text-sm">
+						<thead><tr><th class={ view.Th }>Item</th><th class={ view.Th }>Kind</th><th class={ view.Th }>Map</th><th class={ view.Th + " text-right" }>Size</th><th class={ view.Th }>SHA-256</th><th class={ view.Th }>Played by</th><th class={ view.Th }></th></tr></thead>
+						<tbody>
+							for _, it := range items {
+								<tr class={ view.Tr }>
+									<td class={ view.Td + " font-medium" }>{ it.Name }</td>
+									<td class={ view.Td + " text-muted" }>{ it.Kind }</td>
+									<td class={ view.Td + " text-xs text-muted" }>
+										if it.Meta["type"] != "" {
+											{ it.Meta["type"] } · { it.Meta["edition"] } · { it.Meta["build"] }
+										}
+									</td>
+									<td class={ view.Td + " text-right tabular-nums text-muted" }>{ view.Bytes(it.Size) }</td>
+									<td class={ view.Td + " font-mono text-xs text-faint" }>{ view.Short(it.Sha256, 12) }</td>
+									<td class={ view.Td + " text-xs text-muted" }>{ view.Join(it.Users, ", ") }</td>
+									<td class={ view.Td + " text-right" }>
+										if p.Can("admin") {
+											@parts.Post("/library/"+it.Sha256+"/delete", "Remove", view.Secondary+view.Small, p.CSRF)
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+			if p.Can("admin") {
+				<div class="grid gap-4 lg:grid-cols-2">
+					@parts.Card("Upload", "A map (maps/), a Custom Edition map or resource map (custom_maps/), a gametype file. Large files resume where they stopped (with JavaScript).") {
+						@parts.Pad() {
+							<form method="post" action="/library/upload" enctype="multipart/form-data" class="space-y-3" data-upload>
+								@parts.CSRF(p.CSRF)
+								<div class="grid gap-3 sm:grid-cols-2">
+									<select name="kind" class={ view.Select }>
+										<option value="map">a map (maps/)</option>
+										<option value="custom_map">a Custom Edition map</option>
+										<option value="resource">a resource map (bitmaps, sounds, loc)</option>
+										<option value="gametype">a gametype file (.toml)</option>
+										<option value="saved_gametype">a saved gametype (.gametype)</option>
+									</select>
+									<input name="name" class={ view.Input } placeholder="its name (else the file's)"/>
+								</div>
+								<input type="file" name="file" required class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-raised file:px-3 file:py-1.5 file:text-ink"/>
+								<div class="hidden h-1.5 overflow-hidden rounded-full bg-raised" data-upload-bar><div class="h-full w-0 bg-accent" data-upload-fill></div></div>
+								<p class="text-xs text-muted" data-upload-words></p>
+								<button type="submit" class={ view.Primary }>
+									@parts.Icon("upload", "size-4")
+									Upload
+								</button>
+							</form>
+						}
+					}
+					if p.Can("owner") {
+						@parts.Card("Add a folder", "A game data folder on this machine (maps/, custom_maps/, gametypes/): what the library lacks is copied in.") {
+							@parts.Pad() {
+								<form method="post" action="/library/folder" class="flex gap-2">
+									@parts.CSRF(p.CSRF)
+									<input name="path" class={ view.Input } placeholder="/srv/halo" required/>
+									<button type="submit" class={ view.Secondary }>Add</button>
+								</form>
+								<p class="mt-2 text-xs text-muted">Or on the command line: <code>opence-fleet library add ~/halo</code>.</p>
+							}
+						}
+					}
+				</div>
+			}
+		}
+	}
+}
+
+// ReleaseLine is a release with what runs it.
+type ReleaseLine struct {
+	db.Release
+	Running   []string
+	Following []string
+}
+
+// Releases is the releases page.
+templ Releases(p view.Page, releases []ReleaseLine, image string, latest string, behind int) {
+	@parts.Shell(p) {
+		@parts.Head("Releases", "The dedicated server's releases, as "+image+" images pinned by digest (and their zip for nodes without Docker).") {
+			if p.Can("admin") {
+				@parts.Post("/releases/check", "Check latest now", view.Secondary, p.CSRF)
+			}
+		}
+		@parts.Body() {
+			if behind > 0 && latest != "" && p.Can("admin") {
+				<form method="post" action="/releases/update" class="flex flex-wrap items-center gap-3 rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
+					@parts.CSRF(p.CSRF)
+					<span>{ view.Count(behind, "server runs", "servers run") } an older release than { latest }.</span>
+					<select name="after" class={ view.Select + " !w-auto" }>
+						<option value="game">once their game ends</option>
+						<option value="empty">once they are empty</option>
+						<option value="now">now</option>
+					</select>
+					<button type="submit" class={ view.Primary }>Update them, two a node at a time</button>
+				</form>
+			}
+			<div class={ view.Panel + " overflow-x-auto" }>
+				if len(releases) == 0 {
+					<p class="px-4 py-8 text-center text-sm text-muted">No release known yet: latest is resolved a minute after the start, then every 6 hours. Fetch a tag, or name an image the nodes have (a build of your own).</p>
+				} else {
+					<table class="w-full text-sm">
+						<thead><tr><th class={ view.Th }>Build</th><th class={ view.Th }>Image</th><th class={ view.Th }>Zip</th><th class={ view.Th }>Runs on</th><th class={ view.Th }>Resolved</th><th class={ view.Th }></th></tr></thead>
+						<tbody>
+							for _, r := range releases {
+								<tr class={ view.Tr }>
+									<td class={ view.Td + " font-medium" }>
+										{ r.Build }
+										if r.IsLatest != 0 {
+											@parts.Badge(view.Info, "latest")
+										}
+										if r.Local != 0 {
+											@parts.Badge(view.Neutral, "local")
+										}
+									</td>
+									<td class={ view.Td + " font-mono text-xs text-muted" }>
+										{ r.Image }
+										if r.Digest != "" {
+											<span class="text-faint">{ "@" + view.Short(r.Digest, 12) }</span>
+										}
+									</td>
+									<td class={ view.Td + " text-xs text-muted" }>
+										if r.ZipSha256 != "" {
+											{ view.Bytes(r.ZipSize) } <span class="font-mono text-faint">{ view.Short(r.ZipSha256, 10) }</span>
+										} else if p.Can("admin") {
+											@parts.Post("/releases/"+r.Build+"/zip", "Fetch the zip", view.Secondary+view.Small, p.CSRF)
+										}
+									</td>
+									<td class={ view.Td + " text-xs text-muted" }>{ view.Count(len(r.Running), "server", "servers") }</td>
+									<td class={ view.Td + " whitespace-nowrap text-muted" }>{ view.Unix(r.ResolvedAt, p.Zone) }</td>
+									<td class={ view.Td + " text-right whitespace-nowrap" }>
+										if r.NotesUrl != "" {
+											<a href={ templ.SafeURL(r.NotesUrl) } class="mr-2 text-xs text-accent" rel="noreferrer">notes</a>
+										}
+										if p.Can("admin") && r.IsLatest == 0 {
+											@parts.Post("/releases/"+r.Build+"/latest", "Make latest", view.Secondary+view.Small, p.CSRF)
+											@parts.Post("/releases/"+r.Build+"/forget", "Forget", view.Secondary+view.Small, p.CSRF)
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+			if p.Can("admin") {
+				<div class="grid gap-4 lg:grid-cols-2">
+					@parts.Card("Fetch a tag", "A build-<n> tag of the image, resolved to its digest.") {
+						@parts.Pad() {
+							<form method="post" action="/releases/fetch" class="flex gap-2">
+								@parts.CSRF(p.CSRF)
+								<input name="tag" class={ view.Input } placeholder="build-206" required/>
+								<button type="submit" class={ view.Secondary }>Fetch</button>
+							</form>
+						}
+					}
+					@parts.Card("An image of your own", "One the nodes have (built from deploy/docker), or a registry's: no digest is pinned.") {
+						@parts.Pad() {
+							<form method="post" action="/releases/local" class="grid gap-2 sm:grid-cols-2">
+								@parts.CSRF(p.CSRF)
+								<input name="build" class={ view.Input } placeholder="dev-1" required/>
+								<input name="image" class={ view.Input } placeholder="opence-server:dev" required/>
+								<label class="flex items-center gap-2 text-sm text-muted"><input type="checkbox" name="latest" value="1" class={ view.Check }/> make it latest</label>
+								<button type="submit" class={ view.Secondary }>Add</button>
+							</form>
+						}
+					}
+				</div>
+			}
+		}
+	}
+}
+
+// KeyView is a publisher key with the masters' answers.
+type KeyView struct {
+	db.PublisherKey
+	Answers  map[string]*master.Me
+	Masters  []master.Master
+	Servers  int
+	Proof    string
+	Nonce    string
+	Cached   string
+}
+
+// Masters is the Masters page: the keys, the masters' view, the
+// application helper.
+templ Masters(p view.Page, keys []KeyView, masters []master.Master) {
+	@parts.Shell(p) {
+		@parts.Head("Masters", "The master servers list the fleet's servers under its publisher keys.") {
+			if p.Can("owner") {
+				@parts.Post("/masters/keys", "Make a key", view.Primary, p.CSRF)
+			}
+		}
+		@parts.Body() {
+			<p class="text-sm text-muted">
+				Masters asked:
+				for i, m := range masters {
+					if i > 0 {
+						·
+					}
+					<code>{ m.URL }</code>
+				}
+				(FLEET_MASTERS_FILE names others).
+			</p>
+			if len(keys) == 0 {
+				@parts.Card("", "") {
+					@parts.Empty("No publisher key: the servers are not listed in the server browser. Make a key, apply with it on the master's Discord, and the servers publish with it.") {
+						if p.Can("owner") {
+							@parts.Post("/masters/keys", "Make a key", view.Primary, p.CSRF)
+						}
+					}
+				}
+			}
+			for _, k := range keys {
+				@parts.Card(k.Label, "key id "+k.KeyID+" · "+view.Count(k.Servers, "server publishes", "servers publish")+" with it") {
+					@parts.Pad() {
+						<div class="flex flex-wrap items-center gap-2">
+							if k.IsDefault != 0 {
+								@parts.Badge(view.Info, "default")
+							} else if p.Can("owner") {
+								@parts.Post("/masters/keys/"+k.KeyID+"/default", "Make it the default", view.Secondary+view.Small, p.CSRF)
+							}
+							@parts.Post("/masters/keys/"+k.KeyID+"/refresh", "Ask the masters again", view.Secondary+view.Small, p.CSRF)
+							<span class="text-xs text-faint">asked { k.Cached }</span>
+							if p.Can("owner") {
+								<span class="ml-auto">
+									@parts.Confirm("Forget…", "Forget key "+k.KeyID+": its seed is deleted from the fleet (keep a copy if you applied with it).", "/masters/keys/"+k.KeyID+"/forget", "Forget the key", p.CSRF)
+								</span>
+							}
+						</div>
+						<div class="mt-4">
+							<div class="text-xs tracking-wide text-faint uppercase">Public key</div>
+							@parts.Copy(k.PublicKey)
+						</div>
+						<div class="mt-4 space-y-3">
+							for _, m := range k.Masters {
+								{{ me := k.Answers[m.URL] }}
+								<div class="rounded-md border border-line p-3">
+									<div class="flex flex-wrap items-center gap-2 text-sm">
+										<span class="font-medium">{ m.URL }</span>
+										if me != nil {
+											@parts.Badge(meTone(me), meStatus(me))
+										}
+									</div>
+									<p class="mt-1 text-sm text-muted">{ me.Words() }</p>
+									if me != nil && me.Publisher != nil && len(me.Publisher.Servers) > 0 {
+										<table class="mt-2 w-full text-xs">
+											<thead><tr><th class="py-1 text-left text-faint">Instance</th><th class="py-1 text-left text-faint">Listed</th><th class="py-1 text-left text-faint">Probe</th><th class="py-1 text-left text-faint">Players</th></tr></thead>
+											<tbody>
+												for _, srv := range me.Publisher.Servers {
+													<tr class="border-t border-line">
+														<td class="py-1"><a href={ templ.SafeURL("/servers/" + srv.Instance) }>{ srv.Instance }</a></td>
+														<td class="py-1">
+															if srv.Listed {
+																<span class="text-ok">listed</span>
+															} else if srv.Hidden {
+																<span class="text-warn">hidden: { srv.HiddenReason }</span>
+															} else {
+																<span class="text-muted">not listed</span>
+															}
+														</td>
+														<td class="py-1 text-muted">{ srv.Probe }</td>
+														<td class="py-1 tabular-nums text-muted">{ view.Itoa(srv.Players) }/{ view.Itoa(srv.MaxPlayers) }</td>
+													</tr>
+												}
+											</tbody>
+										</table>
+									}
+								</div>
+							}
+						</div>
+						if p.Can("owner") {
+							<div class="mt-4 rounded-md border border-line p-3">
+								<div class="text-sm font-medium">Apply with this key</div>
+								<ol class="mt-1 list-decimal space-y-1 pl-5 text-sm text-muted">
+									<li>On the master's Discord server, run <code>/apply</code>: the bot gives a nonce, <code>opence-apply-…</code>.</li>
+									<li>Paste it here: the fleet signs it with the key (what <code>halo --server --sign</code> prints).</li>
+									<li>In the bot's form: the public key above, the proof below, your servers' number and region.</li>
+								</ol>
+								<form method="post" action={ templ.SafeURL("/masters/keys/" + k.KeyID + "/sign") } class="mt-3 flex gap-2">
+									@parts.CSRF(p.CSRF)
+									<input name="nonce" class={ view.Input } placeholder="opence-apply-1760900000-0123456789abcdef" value={ k.Nonce } required/>
+									<button type="submit" class={ view.Secondary }>Sign</button>
+								</form>
+								if k.Proof != "" {
+									<div class="mt-2">
+										@parts.Copy(k.Proof)
+									</div>
+								}
+							</div>
+						}
+					}
+				}
+			}
+			if p.Can("owner") {
+				@parts.Card("Import a key", "A publisher.key's 64 hexadecimal digits (a key you applied with already).") {
+					@parts.Pad() {
+						<form method="post" action="/masters/keys/import" class="grid gap-2 sm:grid-cols-[12rem_minmax(0,1fr)_auto]">
+							@parts.CSRF(p.CSRF)
+							<input name="label" class={ view.Input } placeholder="a label"/>
+							<input name="seed" type="password" class={ view.Input } placeholder="64 hexadecimal digits" required autocomplete="off"/>
+							<button type="submit" class={ view.Secondary }>Import</button>
+						</form>
+					}
+				}
+			}
+		}
+	}
+}
+
+func meTone(me *master.Me) view.Tone {
+	if me.Error != nil {
+		return view.Bad
+	}
+	switch me.Status {
+	case "approved", "active":
+		return view.OK
+	case "pending":
+		return view.Warn
+	}
+	return view.Bad
+}
+
+func meStatus(me *master.Me) string {
+	if me.Error != nil {
+		return me.Error.Code
+	}
+	return me.Status
+}

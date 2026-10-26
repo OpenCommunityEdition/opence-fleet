@@ -1,0 +1,21 @@
+# With compose.yaml, for a reverse proxy of your own (nginx, Caddy, ...) on
+# this machine instead of the bundled Caddy: install.sh --proxy external
+# names both files in .env (COMPOSE_FILE=compose.yaml:compose.proxy.yaml).
+#
+# The control plane's port is published on loopback only: the proxy, on
+# this machine, forwards to 127.0.0.1:${FLEET_PORT}, and nothing else
+# reaches it. Its requests come from the compose network's gateway, which
+# compose.yaml's FLEET_TRUSTED_PROXIES (172.30.91.0/24) trusts: the proxy
+# must send X-Forwarded-Proto (and X-Forwarded-For, X-Forwarded-Host), and
+# pass WebSocket upgrades (the agents' /agent, the console) and long
+# responses (the pages' /events stream). Do not publish the port on another
+# address: every client would come from the gateway, and so be trusted to
+# say where it is from.
+services:
+  fleet:
+    ports:
+      - "127.0.0.1:${FLEET_PORT:-8070}:8070"
+
+  caddy:
+    # (off: a profile nothing turns on)
+    profiles: [bundled-caddy]

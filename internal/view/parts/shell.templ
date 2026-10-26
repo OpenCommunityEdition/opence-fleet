@@ -1,0 +1,245 @@
+package parts
+
+import "github.com/OpenCommunityEdition/opence-fleet/internal/view"
+
+// nav is the sidebar's sections: id, path, name, icon, the least role.
+var nav = []struct{ id, path, name, icon, role string }{
+	{"dashboard", "/", "Dashboard", "layout-dashboard", "viewer"},
+	{"servers", "/servers", "Servers", "server", "viewer"},
+	{"players", "/players", "Players", "users", "viewer"},
+	{"nodes", "/nodes", "Nodes", "hard-drive", "viewer"},
+	{"profiles", "/profiles", "Profiles", "layers", "viewer"},
+	{"library", "/library", "Library", "library", "viewer"},
+	{"releases", "/releases", "Releases", "rocket", "viewer"},
+	{"masters", "/masters", "Masters", "radio-tower", "admin"},
+	{"bans", "/bans", "Bans", "ban", "moderator"},
+	{"jobs", "/jobs", "Jobs", "list-checks", "viewer"},
+	{"schedules", "/schedules", "Schedules", "calendar-clock", "viewer"},
+	{"alerts", "/alerts", "Alerts", "triangle-alert", "viewer"},
+	{"audit", "/audit", "Audit", "scroll-text", "admin"},
+	{"team", "/team", "Team", "users-round", "admin"},
+	{"settings", "/settings", "Settings", "settings", "owner"},
+}
+
+// the bottom bar's sections on a phone
+var mobileNav = []struct{ id, path, name, icon string }{
+	{"dashboard", "/", "Dashboard", "layout-dashboard"},
+	{"servers", "/servers", "Servers", "server"},
+	{"players", "/players", "Players", "users"},
+	{"alerts", "/alerts", "Alerts", "triangle-alert"},
+	{"more", "/more", "More", "ellipsis"},
+}
+
+// Icon is one of the sprite's icons.
+templ Icon(name, class string) {
+	<svg class={ "shrink-0 " + class } aria-hidden="true"><use href={ "/static/icons.svg#i-" + name }></use></svg>
+}
+
+// Document is the HTML around every page.
+templ Document(p view.Page) {
+	<!DOCTYPE html>
+	<html
+		lang="en"
+		if p.Theme != "" {
+			data-theme={ p.Theme }
+		}
+	>
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+			<meta name="color-scheme" content="dark light"/>
+			<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"defaultSwapStyle":"outerHTML"}'/>
+			<title>{ p.Title } · { p.Fleet }</title>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
+			<script src="/static/vendor/htmx.min.js" defer></script>
+			<script src="/static/vendor/sse.js" defer></script>
+			<script src="/static/app.js" defer></script>
+		</head>
+		{ children... }
+	</html>
+}
+
+// Shell is the signed-in pages' frame: the sidebar (a top and a bottom bar
+// on a narrow screen), the page's messages, the page; the live stream when
+// the page follows it.
+templ Shell(p view.Page) {
+	@Document(p) {
+		<body
+			class="min-h-dvh"
+			if p.Live {
+				hx-ext="sse"
+				sse-connect="/events"
+			}
+		>
+			<div class="flex min-h-dvh">
+				<aside class="hidden w-60 shrink-0 flex-col border-r border-line bg-panel lg:flex">
+					<a href="/" class="flex items-center gap-2.5 px-4 py-4">
+						<span class="grid size-7 place-items-center rounded-md bg-accent-deep/20 text-sm font-bold text-accent ring-1 ring-accent/60">F</span>
+						<span class="min-w-0">
+							<span class="block truncate text-sm leading-tight font-semibold">{ p.Fleet }</span>
+							<span class="block text-xs text-faint">OpenCE Fleet</span>
+						</span>
+					</a>
+					<nav class="flex flex-col gap-0.5 px-2 py-2" aria-label="Sections">
+						for _, s := range nav {
+							if p.Can(s.role) {
+								<a
+									href={ templ.SafeURL(s.path) }
+									class={ "flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition",
+										templ.KV("rounded-l-none border-l-2 border-accent bg-raised text-ink", p.Section == s.id),
+										templ.KV("text-muted hover:bg-raised hover:text-ink", p.Section != s.id) }
+									if p.Section == s.id {
+										aria-current="page"
+									}
+								>
+									@Icon(s.icon, "size-4")
+									<span>{ s.name }</span>
+									if s.id == "servers" && p.Servers > 0 {
+										<span class="ml-auto text-xs text-faint tabular-nums">{ view.Itoa(p.Servers) }</span>
+									}
+									if s.id == "players" && p.Players > 0 {
+										<span class="ml-auto text-xs text-faint tabular-nums">{ view.Itoa(p.Players) }</span>
+									}
+									if s.id == "alerts" && p.Alerts > 0 {
+										<span class="ml-auto rounded-full bg-bad/15 px-1.5 text-xs text-bad tabular-nums">{ view.Itoa(p.Alerts) }</span>
+									}
+								</a>
+							}
+						}
+					</nav>
+					@UserBox(p)
+				</aside>
+				<div class="flex min-w-0 flex-1 flex-col">
+					<header class="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-ground/85 px-4 py-3 backdrop-blur lg:hidden">
+						<a href="/" class="flex items-center gap-2">
+							<span class="grid size-7 place-items-center rounded-md bg-accent-deep/20 text-sm font-bold text-accent ring-1 ring-accent/60">F</span>
+							<span class="truncate text-sm font-semibold">{ p.Fleet }</span>
+						</a>
+						<a href="/more" class="ml-auto text-sm text-muted">{ p.User.Name }</a>
+					</header>
+					<main class="min-w-0 flex-1 pb-24 lg:pb-10">
+						@Messages(p)
+						{ children... }
+					</main>
+				</div>
+			</div>
+			<nav class="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-line bg-panel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" aria-label="Sections">
+				for _, s := range mobileNav {
+					<a
+						href={ templ.SafeURL(s.path) }
+						class={ "flex flex-col items-center gap-0.5 py-2 text-[0.6875rem]",
+							templ.KV("text-accent", p.Section == s.id),
+							templ.KV("text-muted", p.Section != s.id) }
+					>
+						<span class="relative">
+							@Icon(s.icon, "size-5")
+							if s.id == "alerts" && p.Alerts > 0 {
+								<span class="absolute -top-1 -right-2 rounded-full bg-bad px-1 text-[0.625rem] text-ground tabular-nums">{ view.Itoa(p.Alerts) }</span>
+							}
+						</span>
+						{ s.name }
+					</a>
+				}
+			</nav>
+		</body>
+	}
+}
+
+// UserBox is the sidebar's foot: who is signed in, the theme switch, out.
+templ UserBox(p view.Page) {
+	<div class="mt-auto border-t border-line px-3 py-3 text-xs">
+		<div class="flex items-center gap-2 px-1">
+			<a href="/account" class="min-w-0 truncate text-muted hover:text-ink">{ p.User.Name } · { p.User.Role }</a>
+			<form method="post" action="/theme" class="ml-auto">
+				@CSRF(p.CSRF)
+				<input type="hidden" name="back" value={ p.Path }/>
+				<input type="hidden" name="current" value={ p.Theme } data-theme-current/>
+				<button type="submit" class="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 text-faint hover:bg-raised hover:text-ink" title="Switch the theme" data-theme-toggle>
+					if p.Theme == "light" {
+						@Icon("moon", "size-3.5")
+						dark
+					} else {
+						@Icon("sun", "size-3.5")
+						light
+					}
+				</button>
+			</form>
+			<form method="post" action="/logout">
+				@CSRF(p.CSRF)
+				<button type="submit" class="inline-flex cursor-pointer items-center rounded px-1.5 py-1 text-faint hover:bg-raised hover:text-ink" title="Sign out">
+					@Icon("log-out", "size-3.5")
+				</button>
+			</form>
+		</div>
+		<p class="mt-2 px-1 text-faint">opence-fleet { p.Version }</p>
+	</div>
+}
+
+// Messages is a page's notice and error, and the update banner.
+templ Messages(p view.Page) {
+	if p.Notice != "" || p.Error != "" || p.UpdateBanner != "" {
+		<div class="space-y-2 px-4 pt-4 lg:px-6">
+			if p.UpdateBanner != "" {
+				<div class="rounded-md border border-info/40 bg-info/10 px-4 py-2.5 text-sm" role="status">
+					opence-fleet { p.UpdateBanner } is out: <a href="/settings#updates">update</a>.
+				</div>
+			}
+			if p.Notice != "" {
+				<div class="rounded-md border border-ok/40 bg-ok/10 px-4 py-2.5 text-sm" role="status">{ p.Notice }</div>
+			}
+			if p.Error != "" {
+				<div class="rounded-md border border-bad/50 bg-bad/10 px-4 py-2.5 text-sm" role="alert">{ p.Error }</div>
+			}
+		</div>
+	}
+}
+
+// Narrow is a page of one card in the middle (sign in, setup, invite).
+templ Narrow(p view.Page) {
+	@Document(p) {
+		<body class="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-12">
+			<div class="flex items-center gap-2.5">
+				<span class="grid size-8 place-items-center rounded-md bg-accent-deep/20 font-bold text-accent ring-1 ring-accent/60">F</span>
+				<span>
+					<span class="block text-base leading-tight font-semibold">{ p.Fleet }</span>
+					<span class="block text-xs text-faint">OpenCE Fleet</span>
+				</span>
+			</div>
+			<div class="w-full max-w-sm space-y-4">
+				@Messages(p)
+				<div class="rounded-lg border border-line bg-panel p-6">
+					{ children... }
+				</div>
+			</div>
+			<p class="text-xs text-faint">opence-fleet { p.Version }</p>
+		</body>
+	}
+}
+
+// CSRF is a form's CSRF token.
+templ CSRF(token string) {
+	<input type="hidden" name="csrf" value={ token }/>
+}
+
+// Head is a page's title, a line under it, and its actions.
+templ Head(title, subtitle string) {
+	<header class="flex flex-wrap items-center gap-3 border-b border-line px-4 py-4 lg:px-6">
+		<div class="min-w-0">
+			<h1 class="text-2xl font-semibold tracking-tight">{ title }</h1>
+			if subtitle != "" {
+				<p class="mt-0.5 text-sm text-muted">{ subtitle }</p>
+			}
+		</div>
+		<div class="ml-auto flex flex-wrap items-center gap-2">
+			{ children... }
+		</div>
+	</header>
+}
+
+// Body is a page's content's padding.
+templ Body() {
+	<div class="space-y-4 px-4 py-4 lg:px-6 lg:py-6">
+		{ children... }
+	</div>
+}

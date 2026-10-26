@@ -1,0 +1,61 @@
+# The fleet's control plane behind Caddy, which gets the certificate and
+# terminates TLS. install.sh (README.md, "Installing") sets it up in
+# /opt/opence-fleet, and enrols this machine as the fleet's first node; by
+# hand:
+#
+#   echo FLEET_DOMAIN=fleet.example.org > .env
+#   echo FLEET_PUBLIC_URL=https://fleet.example.org > fleet.env
+#   docker compose up -d
+#   docker compose logs fleet    # the setup link: open it to make the owner
+#
+# The control plane makes fleet.key at its first start (back up the
+# fleet-data volume: it holds the database and the key that encrypts its
+# secrets). The games' containers are not here: each node's agent (on the
+# host, under systemd: agent.sh) makes and owns them, so the control plane
+# has no Docker socket. To run an image built from this checkout instead:
+# docker build -t ghcr.io/opencommunityedition/opence-fleet:latest .
+#
+# The control plane believes X-Forwarded-For and X-Forwarded-Proto only from
+# the compose network's addresses (FLEET_TRUSTED_PROXIES), where Caddy is
+# (or, with compose.proxy.yaml for a reverse proxy of your own, the network's
+# gateway, through which the proxy's requests come).
+services:
+  fleet:
+    image: ghcr.io/opencommunityedition/opence-fleet:latest
+    restart: unless-stopped
+    env_file: fleet.env
+    environment:
+      FLEET_TRUSTED_PROXIES: 172.30.91.0/24
+    volumes:
+      - fleet-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [fleet]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      FLEET_DOMAIN: ${FLEET_DOMAIN:?set FLEET_DOMAIN to the fleet's domain}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [fleet]
+    networks: [fleet]
+
+networks:
+  fleet:
+    ipam:
+      config:
+        - subnet: 172.30.91.0/24
+
+volumes:
+  fleet-data:
+  caddy-data:
+  caddy-config:

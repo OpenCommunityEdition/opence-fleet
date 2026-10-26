@@ -1,0 +1,23 @@
+# Hot reload for the control plane's development (air, github.com/air-verse/air):
+#
+#   FLEET_DATA=dev go run github.com/air-verse/air@latest
+#
+# A change to Go, templ, SQL or the stylesheet's source runs tools/generate.sh
+# (sqlc, templ, Tailwind) and rebuilds; the generated files are not watched,
+# so a generation does not loop. The setup link is printed at the first start.
+root = "."
+tmp_dir = "bin/air"
+
+[build]
+  cmd = "sh tools/generate.sh && go build -o bin/air/opence-fleet ./cmd/opence-fleet"
+  entrypoint = ["bin/air/opence-fleet", "serve"]
+  include_ext = ["go", "templ", "sql", "css", "js", "svg"]
+  exclude_dir = ["bin", "dev", "fleet-data", "tests", "tools/fakehalo", "internal/store/db", "node_modules"]
+  exclude_regex = ["_templ\\.go$", "_test\\.go$", "^static/app\\.css$"]
+  delay = 300
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "3s"
+
+[log]
+  main_only = true

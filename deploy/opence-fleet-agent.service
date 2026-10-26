@@ -1,0 +1,58 @@
+# systemd unit for a node's agent, the container runtime's (agent.sh writes
+# this one itself, with the process runtime's differences: no docker group,
+# SystemCallArchitectures=native x86 for the 32-bit servers, and the
+# servers' memory inside MemoryMax, since they are the unit's children).
+#
+#   install -m 755 opence-fleet /usr/local/bin/
+#   useradd --system --home-dir /var/lib/opence-fleet --shell /usr/sbin/nologin -G docker opence-fleet
+#   install -d -o opence-fleet -g opence-fleet -m 750 /var/lib/opence-fleet
+#   install -d -m 755 /etc/opence-fleet
+#   opence-fleet agent --join https://fleet.example.org --token <join token> --env-file /etc/opence-fleet/agent.env
+#   install -m 644 deploy/opence-fleet-agent.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now opence-fleet-agent
+#
+# The servers run outside this unit, in their containers, whose cgroups
+# carry their limits (node settings on the Nodes page). Stopping the unit
+# stops every server (SIGTERM: the postgame and the masters' withdrawal,
+# 15 s each, at once) and drains nothing: drain the node from its page
+# before a planned reboot. After a reboot the agent starts them again from
+# its state file, a few at a time.
+[Unit]
+Description=opence-fleet agent
+Documentation=https://github.com/OpenCommunityEdition/opence-fleet
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=opence-fleet
+# (the Engine API's socket; not needed by the process runtime)
+SupplementaryGroups=docker
+EnvironmentFile=/etc/opence-fleet/agent.env
+ExecStart=/usr/local/bin/opence-fleet agent
+Restart=always
+RestartSec=5
+# (SIGTERM to the agent, which stops its servers itself; then the group)
+KillMode=mixed
+TimeoutStopSec=40
+# (nothing writable but the node folder and the socket)
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/opence-fleet /run/docker.sock
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# (the agent's own; each server has its container's limit)
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

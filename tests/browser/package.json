@@ -1,0 +1,12 @@
+{
+  "name": "opence-fleet-browser-tests",
+  "private": true,
+  "description": "The pages in a real browser (tests/browser/smoke.mjs): Playwright alone, for CI and a developer's machine.",
+  "type": "module",
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.58.0"
+  }
+}

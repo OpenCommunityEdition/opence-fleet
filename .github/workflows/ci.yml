@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # the game's repository and the commit whose tools/server_sim.py the
+  # conformance test checks tools/fakehalo against (pinned: move it on
+  # purpose, when the game's API changes)
+  GAME_REPOSITORY: OpenCommunityEdition/OpenCE
+  GAME_REF: 815d3a0ca551aa82c4c17d132866217583b36c05
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # the latest patch of go.mod's Go: the standard library's fixes
+          go-version: "1.26.x"
+          check-latest: true
+      - name: the generated code is current (sqlc's queries, templ's Go code, Tailwind's stylesheet)
+        run: |
+          sh tools/generate.sh
+          git diff --exit-code -- internal static
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: go vet
+        run: go vet ./...
+      - name: the workflows parse (actionlint, with shellcheck on their scripts)
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+      - name: the installers (sh -n, shellcheck)
+        run: |
+          sh -n install.sh
+          sh -n agent.sh
+          shellcheck -s sh install.sh agent.sh
+      - name: the fake server's image (for the container runtime's test)
+        run: docker build -f tools/fakehalo/Dockerfile -t fakehalo-server:test .
+      - name: go test (the container runtime on the runner's Docker included)
+        env:
+          FLEET_TEST_DOCKER: "1"
+          FLEET_TEST_IMAGE: fakehalo-server:test
+        run: go test -race ./...
+      - name: known vulnerabilities (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: the game's protocol simulator (tools/server_sim.py, pinned)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.GAME_REPOSITORY }}
+          ref: ${{ env.GAME_REF }}
+          path: game
+          sparse-checkout: |
+            tools/server_sim.py
+            port/assets/server_ui
+          sparse-checkout-cone-mode: false
+      - name: conformance of tools/fakehalo to the simulator
+        run: OPENCE_SERVER_SIM="$GITHUB_WORKSPACE/game/tools/server_sim.py" go test -count=1 ./tests/conformance
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: the binaries
+        run: |
+          go build -o "$RUNNER_TEMP/opence-fleet" ./cmd/opence-fleet
+          go build -o "$RUNNER_TEMP/fakehalo" ./tools/fakehalo
+      - name: Playwright and Chromium
+        working-directory: tests/browser
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: the pages' smoke test
+        working-directory: tests/browser
+        env:
+          FLEET_BIN: ${{ runner.temp }}/opence-fleet
+          FAKEHALO_BIN: ${{ runner.temp }}/fakehalo
+          SHOTS: ${{ runner.temp }}/shots
+        run: node smoke.mjs
+      - name: the screenshots (for a human look)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ["linux/amd64", "linux/arm64", "linux/arm/7"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - name: static binary
+        run: |
+          IFS=/ read -r os arch arm <<< "${{ matrix.target }}"
+          CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -trimpath -ldflags "-s -w" -o opence-fleet ./cmd/opence-fleet
+          file opence-fleet
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: build the image
+        run: docker build --build-arg "VERSION=${GITHUB_SHA::12}" -t opence-fleet:ci .
+      - name: smoke test the image
+        run: |
+          docker run --rm opence-fleet:ci version
+          # (bad usage exits 2)
+          status=0
+          docker run --rm opence-fleet:ci no-such-command || status=$?
+          test "$status" -eq 2
+          # a first start with no settings: it makes its key and prints the setup link
+          id=$(docker run -d opence-fleet:ci)
+          sleep 3
+          docker exec "$id" /usr/local/bin/opence-fleet health
+          docker logs "$id" 2>&1 | grep -q '"msg":"serving"'
+          docker logs "$id" 2>&1 | grep -q "/setup?code="
+          test "$(docker inspect -f '{{.Config.User}}' opence-fleet:ci)" = "65532:65532"
+          docker rm -f "$id"

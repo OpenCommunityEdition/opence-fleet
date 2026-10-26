@@ -1,0 +1,15 @@
+# Written by opence-fleet for btb-eu-1 before each start: a change made here is
+# overwritten. The fleet sets the rest (ports, passwords, paths, the publisher
+# key) in the environment, where the server pins them.
+
+[server]
+max_players = 12
+motd = "Say \"hi\"\\ welcome"
+name = "BTB EU #1"
+public = true
+rotation = "bloodgulch:ctf, sidewinder:team_slayer+score=50"
+
+[network]
+text_chat = "on"
+voice_mode = "team_global"
+voice_proximity = 20.0

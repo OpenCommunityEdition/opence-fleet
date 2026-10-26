@@ -1,0 +1,144 @@
+/* The pages' stylesheet's source: Tailwind v4 (tools/generate.sh writes
+   static/app.css from it). The classes are in the .templ files and in
+   view.go's constants. The colours are the design system's tokens
+   (OPENCE_FLEET_PLAN.md 5.2), named once for the dark theme (the default)
+   and once for the light one, which the theme switch sets with
+   data-theme="light" on <html> (or the system's choice when none is set),
+   so that a class such as bg-panel or text-muted needs no dark: twin. */
+@import "tailwindcss" source(none);
+@source "../**/*.{templ,go}";
+
+:root {
+	--ground: #09090b;
+	--panel: #111113;
+	--raised: #18181b;
+	--line: rgb(255 255 255 / 0.10);
+	--line-strong: rgb(255 255 255 / 0.18);
+	--ink: #fafafa;
+	--muted: #a1a1aa;
+	--faint: #71717a;
+	--accent: #36afff;
+	--accent-deep: #2299ff;
+	--ok: #4ade80;
+	--warn: #fbbf24;
+	--bad: #f87171;
+	--info: #60a5fa;
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme="dark"]) {
+		--ground: #f6f7f9;
+		--panel: #ffffff;
+		--raised: #f0f1f4;
+		--line: rgb(0 0 0 / 0.08);
+		--line-strong: rgb(0 0 0 / 0.16);
+		--ink: #111113;
+		--muted: #52525b;
+		--faint: #71717a;
+		--accent: #1673d1;
+		--accent-deep: #0f5fb0;
+		--ok: #15803d;
+		--warn: #b45309;
+		--bad: #dc2626;
+		--info: #2563eb;
+		color-scheme: light;
+	}
+}
+
+:root[data-theme="light"] {
+	--ground: #f6f7f9;
+	--panel: #ffffff;
+	--raised: #f0f1f4;
+	--line: rgb(0 0 0 / 0.08);
+	--line-strong: rgb(0 0 0 / 0.16);
+	--ink: #111113;
+	--muted: #52525b;
+	--faint: #71717a;
+	--accent: #1673d1;
+	--accent-deep: #0f5fb0;
+	--ok: #15803d;
+	--warn: #b45309;
+	--bad: #dc2626;
+	--info: #2563eb;
+	color-scheme: light;
+}
+
+@theme inline {
+	--color-ground: var(--ground);
+	--color-panel: var(--panel);
+	--color-raised: var(--raised);
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
+	--color-ink: var(--ink);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-accent: var(--accent);
+	--color-accent-deep: var(--accent-deep);
+	--color-ok: var(--ok);
+	--color-warn: var(--warn);
+	--color-bad: var(--bad);
+	--color-info: var(--info);
+	--radius-panel: 0.5rem;
+	--font-display: "Overpass", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+	body {
+		@apply bg-ground text-ink antialiased;
+	}
+	a:not([class]) {
+		@apply text-accent underline-offset-2 hover:underline;
+	}
+	code {
+		@apply rounded bg-raised px-1 py-0.5 font-mono text-[0.8125rem] wrap-anywhere;
+	}
+	pre {
+		@apply font-mono text-xs;
+	}
+	::selection {
+		@apply bg-accent/30;
+	}
+	input:-webkit-autofill {
+		-webkit-box-shadow: 0 0 0 1000px var(--panel) inset !important;
+		-webkit-text-fill-color: var(--ink) !important;
+		caret-color: var(--ink) !important;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation: none !important;
+			transition: none !important;
+		}
+	}
+}
+
+@layer components {
+	/* the live dot's pulse */
+	.pulse {
+		animation: pulse 2s ease-in-out infinite;
+	}
+	@keyframes pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.35;
+		}
+	}
+	/* the htmx request indicator */
+	.htmx-indicator {
+		opacity: 0;
+		transition: opacity 150ms;
+	}
+	.htmx-request .htmx-indicator,
+	.htmx-request.htmx-indicator {
+		opacity: 1;
+	}
+	/* a dialog's backdrop */
+	dialog::backdrop {
+		background: rgb(0 0 0 / 0.6);
+	}
+}

@@ -1,0 +1,555 @@
+package pages
+
+import (
+	"time"
+
+	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+func jobTone(state string) view.Tone {
+	switch state {
+	case "done":
+		return view.OK
+	case "running", "queued":
+		return view.Accent
+	case "failed":
+		return view.Bad
+	}
+	return view.Neutral
+}
+
+func itemTone(state string) view.Tone {
+	switch state {
+	case "done":
+		return view.OK
+	case "running":
+		return view.Accent
+	case "waiting":
+		return view.Neutral
+	case "refused":
+		return view.Bad
+	}
+	return view.Warn
+}
+
+// Jobs is the jobs' list.
+templ Jobs(p view.Page, jobs []db.Job) {
+	@parts.Shell(p) {
+		@parts.Head("Jobs", "Bulk actions, updates and schedules' runs: each server's outcome.")
+		@parts.Body() {
+			<div class={ view.Panel }>
+				if len(jobs) == 0 {
+					<p class="px-4 py-8 text-center text-sm text-muted">No job yet: select servers on the Servers page for a bulk action.</p>
+				}
+				for _, j := range jobs {
+					<a href={ templ.SafeURL("/jobs/" + view.I64(j.ID)) } class="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3 text-sm first:border-t-0 hover:bg-raised">
+						<span class="text-faint tabular-nums">#{ view.I64(j.ID) }</span>
+						<span class="font-medium">{ j.Title }</span>
+						@parts.State(j.State, jobTone(j.State))
+						<span class="text-xs text-muted">{ j.Actor } · { view.Unix(j.CreatedAt, p.Zone) }</span>
+						if j.Detail != "" {
+							<span class="w-full text-xs text-muted">{ j.Detail }</span>
+						}
+					</a>
+				}
+			</div>
+		}
+	}
+}
+
+// Job is a job's page.
+templ Job(p view.Page, job db.Job, items []db.JobItem) {
+	@parts.Shell(p) {
+		@parts.Head("#"+view.I64(job.ID)+" "+job.Title, job.Actor+" · "+view.Unix(job.CreatedAt, p.Zone)) {
+			if p.Can("admin") && (job.State == "running" || job.State == "queued") {
+				@parts.Post("/jobs/"+view.I64(job.ID)+"/cancel", "Cancel", view.Secondary, p.CSRF)
+			}
+		}
+		@parts.Body() {
+			@JobTable(job, items, p.Zone)
+		}
+	}
+}
+
+// JobTable is a job's state and items (the live fragment job:<id>, asked
+// again when the live stream opens: data-refresh).
+templ JobTable(job db.Job, items []db.JobItem, zone *time.Location) {
+	<div id={ "job-" + view.I64(job.ID) } sse-swap={ "job:" + view.I64(job.ID) } hx-swap="outerHTML" class="space-y-3" data-refresh={ "/jobs/" + view.I64(job.ID) + "/fragment" }>
+		<div class="flex flex-wrap items-center gap-2">
+			@parts.State(job.State, jobTone(job.State))
+			if job.Detail != "" {
+				<span class="text-sm text-muted">{ job.Detail }</span>
+			}
+		</div>
+		<div class={ view.Panel + " overflow-x-auto" }>
+			<table class="w-full text-sm">
+				<thead><tr><th class={ view.Th }>Server</th><th class={ view.Th }>Wave</th><th class={ view.Th }>State</th><th class={ view.Th }>Detail</th><th class={ view.Th }>At</th></tr></thead>
+				<tbody>
+					for _, it := range items {
+						<tr class={ view.Tr }>
+							<td class={ view.Td + " font-medium" }><a href={ templ.SafeURL("/servers/" + it.Slug) } class="hover:text-accent">{ it.Slug }</a></td>
+							<td class={ view.Td + " tabular-nums text-muted" }>{ view.I64(it.Wave + 1) }</td>
+							<td class={ view.Td }>@parts.State(it.State, itemTone(it.State))</td>
+							<td class={ view.Td + " text-muted" }>{ it.Detail }</td>
+							<td class={ view.Td + " whitespace-nowrap text-muted" }>{ view.Unix(it.UpdatedAt, zone) }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
+
+// ScheduleLine is a schedule on its page.
+type ScheduleLine struct {
+	db.Schedule
+	Targets core.Targets
+	Params  core.JobParams
+	Summary string
+}
+
+// Schedules is the schedules page.
+templ Schedules(p view.Page, list []ScheduleLine, groups []string, zone string) {
+	@parts.Shell(p) {
+		@parts.Head("Schedules", "Actions on cron expressions, in the fleet's time zone ("+zone+"): each run is a job.")
+		@parts.Body() {
+			<div class={ view.Panel }>
+				if len(list) == 0 {
+					<p class="px-4 py-8 text-center text-sm text-muted">No schedule. Restart a group nightly (drained), change a rotation for an event night, update in a window.</p>
+				}
+				for _, s := range list {
+					<div class="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3 text-sm first:border-t-0">
+						<span class="font-medium">{ s.Name }</span>
+						<code>{ s.Cron }</code>
+						<span class="text-muted">{ s.Action } · { s.Summary }</span>
+						if s.Enabled == 0 {
+							@parts.Badge(view.Neutral, "disabled")
+						}
+						<span class="text-xs text-faint">next { view.UnixPtr(s.NextRun, p.Zone) } · last { view.UnixPtr(s.LastRun, p.Zone) }</span>
+						if s.LastJob != nil && *s.LastJob > 0 {
+							<a href={ templ.SafeURL("/jobs/" + view.I64(*s.LastJob)) } class="text-xs text-accent">its last job</a>
+						}
+						if p.Can("admin") {
+							<span class="ml-auto flex gap-2">
+								@parts.Post("/schedules/"+view.I64(s.ID)+"/run", "Run now", view.Secondary+view.Small, p.CSRF)
+								@parts.Post("/schedules/"+view.I64(s.ID)+"/delete", "Delete", view.Secondary+view.Small, p.CSRF)
+							</span>
+						}
+					</div>
+				}
+			</div>
+			if p.Can("admin") {
+				@parts.Card("New schedule", "Cron: minute hour day month weekday (0 4 * * * is 04:00 each day), or @daily, @hourly.") {
+					@parts.Pad() {
+						<form method="post" action="/schedules" class="grid gap-3 md:grid-cols-3">
+							@parts.CSRF(p.CSRF)
+							<input name="name" class={ view.Input } placeholder="nightly-restart" required/>
+							<input name="cron" class={ view.Input } placeholder="0 4 * * *" required/>
+							<select name="action" class={ view.Select }>
+								for _, a := range core.ScheduleActions {
+									<option value={ a.ID }>{ a.Name }</option>
+								}
+							</select>
+							<input name="groups" class={ view.Input } placeholder="groups: eu, beta" list="schedule-groups"/>
+							<datalist id="schedule-groups">
+								for _, g := range groups {
+									<option value={ g }></option>
+								}
+							</datalist>
+							<input name="slugs" class={ view.Input } placeholder="or servers: btb-eu-1, btb-eu-2"/>
+							<input name="text" class={ view.Input } placeholder="a notice, a rotation, a command"/>
+							<select name="after" class={ view.Select }>
+								<option value="game">drained: once the game ends</option>
+								<option value="empty">drained: once empty</option>
+								<option value="now">at once</option>
+							</select>
+							<input name="channel" class={ view.Input } placeholder="release: latest"/>
+							<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="enabled" value="1" checked class={ view.Check }/> enabled</label>
+							<div class="md:col-span-3"><button type="submit" class={ view.Primary }>Make the schedule</button></div>
+						</form>
+					}
+				}
+			}
+		}
+	}
+}
+
+// AlertRow is an alert on the alerts page.
+type AlertRow struct {
+	db.Alert
+	RuleName string
+}
+
+// WebhookRow is a webhook (its host alone: the URL is a secret).
+type WebhookRow struct {
+	ID                        int64
+	Label, Host, Kind, Status string
+	Rules                     []string
+}
+
+// Alerts is the alerts page: open and resolved, the webhooks.
+templ Alerts(p view.Page, open, resolved []AlertRow, hooks []WebhookRow) {
+	@parts.Shell(p) {
+		@parts.Head("Alerts", "Rules over the live state and the events; told to the webhooks that subscribe to them.")
+		@parts.Body() {
+			@parts.Card("Open", "") {
+				if len(open) == 0 {
+					<p class="border-t border-line px-4 py-4 text-sm text-muted">No open alert.</p>
+				}
+				for _, a := range open {
+					<div class="flex flex-wrap items-start gap-3 border-t border-line px-4 py-3 text-sm">
+						<span class={ view.Dot(view.Bad) + " mt-1.5" }></span>
+						<div class="min-w-0 flex-1">
+							<div class="font-medium">{ a.Target }: { a.RuleName }</div>
+							<pre class="mt-1 font-sans text-sm whitespace-pre-wrap text-muted">{ a.Detail }</pre>
+							<div class="mt-1 text-xs text-faint">
+								since { view.Unix(a.FirstSeen, p.Zone) } · last { view.Unix(a.LastSeen, p.Zone) }
+								if a.Delivered != "" {
+									· told { a.Delivered }
+								}
+								if a.AcknowledgedBy != "" {
+									· seen by { a.AcknowledgedBy }
+								}
+							</div>
+						</div>
+						<div class="flex gap-2">
+							if p.Can("moderator") && a.AcknowledgedBy == "" {
+								@parts.Post("/alerts/"+view.I64(a.ID)+"/acknowledge", "Seen", view.Secondary+view.Small, p.CSRF)
+							}
+							if p.Can("admin") {
+								@parts.Post("/alerts/"+view.I64(a.ID)+"/resolve", "Resolve", view.Secondary+view.Small, p.CSRF)
+							}
+						</div>
+					</div>
+				}
+			}
+			@parts.Card("Resolved lately", "") {
+				for _, a := range resolved {
+					<div class="flex flex-wrap gap-3 border-t border-line px-4 py-2 text-sm">
+						<span class={ view.Dot(view.OK) + " mt-1.5" }></span>
+						<span class="font-medium">{ a.Target }: { a.RuleName }</span>
+						<span class="text-xs text-faint">{ view.Unix(a.FirstSeen, p.Zone) } → { view.UnixPtr(a.ResolvedAt, p.Zone) }</span>
+					</div>
+				}
+				if len(resolved) == 0 {
+					<p class="border-t border-line px-4 py-4 text-sm text-muted">None.</p>
+				}
+			}
+			if p.Can("admin") {
+				@parts.Card("Webhooks", "Discord's (an embed) or any JSON endpoint's. Their URLs hold their tokens: the page shows their host alone.") {
+					for _, h := range hooks {
+						<div class="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2.5 text-sm">
+							<span class="font-medium">{ h.Label }</span>
+							<span class="text-xs text-muted">{ h.Kind } · { h.Host } · { view.Join(h.Rules, ", ") }</span>
+							if h.Status != "" {
+								<span class={ "text-xs", templ.KV("text-ok", h.Status == "ok"), templ.KV("text-bad", h.Status != "ok") }>{ h.Status }</span>
+							}
+							<span class="ml-auto flex gap-2">
+								@parts.Post("/webhooks/"+view.I64(h.ID)+"/test", "Test", view.Secondary+view.Small, p.CSRF)
+								@parts.Post("/webhooks/"+view.I64(h.ID)+"/delete", "Delete", view.Secondary+view.Small, p.CSRF)
+							</span>
+						</div>
+					}
+					<form method="post" action="/webhooks" class="grid gap-3 border-t border-line px-4 py-4 md:grid-cols-[10rem_minmax(0,1fr)_8rem]">
+						@parts.CSRF(p.CSRF)
+						<input name="label" class={ view.Input } placeholder="#ops"/>
+						<input name="url" type="url" class={ view.Input } placeholder="https://discord.com/api/webhooks/…" required/>
+						<select name="kind" class={ view.Select }>
+							<option value="discord">Discord</option>
+							<option value="json">JSON</option>
+						</select>
+						<div class="flex flex-wrap gap-x-4 gap-y-1 md:col-span-3">
+							<label class="flex items-center gap-1.5 text-xs"><input type="checkbox" name="rule" value="*" checked class={ view.Check }/> every rule</label>
+							for _, r := range core.Rules {
+								<label class="flex items-center gap-1.5 text-xs text-muted"><input type="checkbox" name="rule" value={ r.ID } class={ view.Check }/> { r.Name }</label>
+							}
+						</div>
+						<div><button type="submit" class={ view.Primary }>Add the webhook</button></div>
+					</form>
+				}
+			}
+		}
+	}
+}
+
+// Audit is the audit log.
+templ Audit(p view.Page, rows []db.Audit, actor, action, target string, next int64) {
+	@parts.Shell(p) {
+		@parts.Head("Audit", "Every change and every moderation action, with who did it.") {
+			<a href="/audit.json" class={ view.Secondary }>Export</a>
+		}
+		@parts.Body() {
+			<form method="get" action="/audit" class="flex flex-wrap gap-2">
+				<input name="actor" value={ actor } class={ view.Input + " !w-48" } placeholder="actor: user:paul"/>
+				<input name="action" value={ action } class={ view.Input + " !w-48" } placeholder="action: instance."/>
+				<input name="target" value={ target } class={ view.Input + " !w-48" } placeholder="target: btb-eu-1"/>
+				<button type="submit" class={ view.Secondary }>Filter</button>
+			</form>
+			<div class={ view.Panel + " overflow-x-auto" }>
+				<table class="w-full text-sm">
+					<thead><tr><th class={ view.Th }>When</th><th class={ view.Th }>Who</th><th class={ view.Th }>What</th><th class={ view.Th }>On</th><th class={ view.Th }>Detail</th></tr></thead>
+					<tbody>
+						for _, a := range rows {
+							<tr class={ view.Tr }>
+								<td class={ view.Td + " whitespace-nowrap text-muted tabular-nums" }>{ view.Unix(a.Time, p.Zone) }</td>
+								<td class={ view.Td + " whitespace-nowrap" }>{ a.Actor }</td>
+								<td class={ view.Td + " whitespace-nowrap font-mono text-xs" }>{ a.Action }</td>
+								<td class={ view.Td }>{ a.Target }</td>
+								<td class={ view.Td + " max-w-md truncate font-mono text-xs text-muted" } title={ a.Detail }>{ a.Detail }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+				if len(rows) == 0 {
+					<p class="px-4 py-6 text-sm text-muted">Nothing.</p>
+				}
+			</div>
+			if next > 0 {
+				<a href={ templ.SafeURL("/audit?before=" + view.I64(next) + "&actor=" + actor + "&action=" + action + "&target=" + target) } class={ view.Secondary }>Older</a>
+			}
+		}
+	}
+}
+
+// TeamView is the team page's data.
+type TeamView struct {
+	Users    []db.User
+	Sessions []db.ListSessionsRow
+	Invites  []db.Invite
+	Tokens   []db.ListTokensRow
+	// what was just made, shown once
+	InviteLink, Token string
+}
+
+// Team is the team page.
+templ Team(p view.Page, t TeamView) {
+	@parts.Shell(p) {
+		@parts.Head("Team", "The fleet's users, their sessions, the invites and the API tokens.")
+		@parts.Body() {
+			if t.InviteLink != "" {
+				@parts.Card("The invite", "Send it to them: it works once, for 7 days, and is shown once.") {
+					@parts.Pad() {
+						@parts.Copy(t.InviteLink)
+					}
+				}
+			}
+			if t.Token != "" {
+				@parts.Card("The token", "For the command line (FLEET_TOKEN) or scripts (Authorization: Bearer). It is shown once.") {
+					@parts.Pad() {
+						@parts.Copy(t.Token)
+					}
+				}
+			}
+			<div class={ view.Panel + " overflow-x-auto" }>
+				<table class="w-full text-sm">
+					<thead><tr><th class={ view.Th }>Name</th><th class={ view.Th }>Role</th><th class={ view.Th }>Since</th><th class={ view.Th }></th></tr></thead>
+					<tbody>
+						for _, u := range t.Users {
+							<tr class={ view.Tr, templ.KV("opacity-50", u.Disabled != 0) }>
+								<td class={ view.Td + " font-medium" }>{ u.Name }</td>
+								<td class={ view.Td }>
+									if p.Can("admin") && u.ID != p.User.UserID {
+										<form method="post" action={ templ.SafeURL("/team/users/" + view.I64(u.ID) + "/role") } class="flex gap-2">
+											@parts.CSRF(p.CSRF)
+											<select name="role" class={ view.Select + " !w-36" }>
+												for _, role := range []string{"owner", "admin", "moderator", "viewer"} {
+													<option value={ role } selected?={ role == u.Role }>{ role }</option>
+												}
+											</select>
+											<button type="submit" class={ view.Secondary + view.Small }>Set</button>
+										</form>
+									} else {
+										{ u.Role }
+									}
+								</td>
+								<td class={ view.Td + " text-muted" }>{ view.Unix(u.CreatedAt, p.Zone) }</td>
+								<td class={ view.Td + " text-right" }>
+									if u.ID != p.User.UserID && p.Can("admin") {
+										if u.Disabled == 0 {
+											@parts.Post("/team/users/"+view.I64(u.ID)+"/disable", "Disable", view.Secondary+view.Small, p.CSRF)
+										} else {
+											@parts.Post("/team/users/"+view.I64(u.ID)+"/disable", "Enable", view.Secondary+view.Small, p.CSRF) {
+												<input type="hidden" name="enable" value="1"/>
+											}
+										}
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			<div class="grid gap-4 lg:grid-cols-2">
+				@parts.Card("Invite", "A link with a role (at most yours), for 7 days.") {
+					@parts.Pad() {
+						<form method="post" action="/team/invites" class="flex flex-wrap gap-2">
+							@parts.CSRF(p.CSRF)
+							<select name="role" class={ view.Select + " !w-40" }>
+								for _, role := range []string{"viewer", "moderator", "admin", "owner"} {
+									if p.Can(role) {
+										<option value={ role }>{ role }</option>
+									}
+								}
+							</select>
+							<input name="label" class={ view.Input + " flex-1" } placeholder="who it is for"/>
+							<button type="submit" class={ view.Primary }>Make the invite</button>
+						</form>
+						if len(t.Invites) > 0 {
+							<ul class="mt-3 space-y-1 text-xs text-muted">
+								for _, i := range t.Invites {
+									<li>{ i.Role } · { firstOf(i.Label, "no label") } · until { view.Unix(i.ExpiresAt, p.Zone) }</li>
+								}
+							</ul>
+						}
+					}
+				}
+				@parts.Card("API tokens", "For the command line and scripts: a role, a label.") {
+					@parts.Pad() {
+						<form method="post" action="/team/tokens" class="flex flex-wrap gap-2">
+							@parts.CSRF(p.CSRF)
+							<select name="role" class={ view.Select + " !w-40" }>
+								for _, role := range []string{"viewer", "moderator", "admin", "owner"} {
+									if p.Can(role) {
+										<option value={ role }>{ role }</option>
+									}
+								}
+							</select>
+							<input name="label" class={ view.Input + " flex-1" } placeholder="ci, a backup script" required/>
+							<button type="submit" class={ view.Primary }>Make a token</button>
+						</form>
+						<ul class="mt-3 divide-y divide-line text-sm">
+							for _, tk := range t.Tokens {
+								<li class="flex items-center gap-2 py-2">
+									<span class="font-medium">{ tk.Label }</span>
+									<span class="text-xs text-muted">{ tk.Role } · { tk.UserName } · used { view.UnixPtr(tk.LastUsed, p.Zone) }</span>
+									<span class="ml-auto">
+										@parts.Post("/team/tokens/"+view.I64(tk.ID)+"/delete", "Revoke", view.Secondary+view.Small, p.CSRF)
+									</span>
+								</li>
+							}
+						</ul>
+					}
+				}
+			</div>
+			@parts.Card("Sessions", "Signed in now.") {
+				<ul class="border-t border-line text-sm">
+					for _, s := range t.Sessions {
+						<li class="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 last:border-b-0">
+							<span class="font-medium">{ s.Name }</span>
+							<span class="text-xs text-muted">{ s.Address } · since { view.Unix(s.CreatedAt, p.Zone) } · last { view.Unix(s.LastUsed, p.Zone) }</span>
+							<span class="ml-auto">
+								@parts.Post("/team/sessions/"+hexOf(s.TokenHash)+"/delete", "End", view.Secondary+view.Small, p.CSRF)
+							</span>
+						</li>
+					}
+				</ul>
+			}
+		}
+	}
+}
+
+// SettingRow is one of the fleet's settings.
+type SettingRow struct {
+	Name, Label, Value, Hint, Env string
+	Pinned                        bool
+	Choices                       []string
+}
+
+// UpdateView is the fleet's updates' state.
+type UpdateView struct {
+	Current, Mode, Latest, Checked, Error string
+	Available, Updating                  bool
+}
+
+// Settings is the fleet's own settings.
+templ Settings(p view.Page, rows []SettingRow, u UpdateView) {
+	@parts.Shell(p) {
+		@parts.Head("Settings", "The fleet's own options. One its environment variable sets is shown so, and changed there.")
+		@parts.Body() {
+			<form method="post" action="/settings" class="max-w-2xl space-y-4 rounded-lg border border-line bg-panel p-5">
+				@parts.CSRF(p.CSRF)
+				for _, s := range rows {
+					@parts.Field("set-"+s.Name, s.Label, s.Hint) {
+						if s.Pinned {
+							<input id={ "set-" + s.Name } class={ view.Input } value={ s.Value } disabled/>
+							<p class="text-xs text-warn">Set by { s.Env }.</p>
+						} else if len(s.Choices) > 0 {
+							<select id={ "set-" + s.Name } name={ s.Name } class={ view.Select }>
+								for _, c := range s.Choices {
+									<option value={ c } selected?={ c == s.Value }>{ c }</option>
+								}
+							</select>
+						} else {
+							<input id={ "set-" + s.Name } name={ s.Name } class={ view.Input } value={ s.Value }/>
+						}
+					}
+				}
+				<button type="submit" class={ view.Primary }>Save</button>
+			</form>
+			<div id="updates">
+				@parts.Card("Updates", "The fleet's own releases (FLEET_UPDATES: "+u.Mode+"), signed with its release key; the agents follow their control plane.") {
+					@parts.Pad() {
+						@parts.KV() {
+							@parts.Item("Running") {
+								opence-fleet { u.Current }
+							}
+							@parts.Item("Latest") {
+								{ firstOf(u.Latest, "not checked yet") } <span class="text-muted">· checked { u.Checked }</span>
+							}
+							if u.Error != "" {
+								@parts.Item("Problem") {
+									<span class="text-bad">{ u.Error }</span>
+								}
+							}
+						}
+						if u.Available && !u.Updating {
+							<div class="mt-4">
+								@parts.Post("/settings/update", "Update to "+u.Latest, view.Primary, p.CSRF)
+							</div>
+						}
+						if u.Updating {
+							<p class="mt-4 text-sm text-warn">Updating: the fleet restarts into the new release.</p>
+						}
+					}
+				}
+			</div>
+		}
+	}
+}
+
+// StatusRow is a server on the public status page.
+type StatusRow struct {
+	Name, Map, Gametype, Region, State string
+	Players, MaxPlayers                int
+	Listed                             bool
+}
+
+// PublicStatus is the public, read-only status page (FLEET_PUBLIC_STATUS).
+templ PublicStatus(p view.Page, rows []StatusRow) {
+	@parts.Document(p) {
+		<body class="min-h-dvh px-4 py-10">
+			<main class="mx-auto max-w-3xl space-y-4">
+				<h1 class="text-2xl font-semibold tracking-tight">{ p.Fleet }</h1>
+				<p class="text-sm text-muted">The servers now.</p>
+				<div class={ view.Panel }>
+					for _, r := range rows {
+						<div class="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3 text-sm first:border-t-0">
+							<span class="font-medium">{ r.Name }</span>
+							<span class="text-muted">{ view.MapTitle(r.Map) } · { r.Gametype }</span>
+							if r.Region != "" {
+								@parts.Badge(view.Neutral, r.Region)
+							}
+							<span class="ml-auto tabular-nums">{ view.Itoa(r.Players) } / { view.Itoa(r.MaxPlayers) }</span>
+						</div>
+					}
+					if len(rows) == 0 {
+						<p class="px-4 py-6 text-sm text-muted">No server is up.</p>
+					}
+				</div>
+			</main>
+		</body>
+	}
+}

@@ -1,0 +1,225 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// Filters is the servers list's filters.
+type Filters struct {
+	Node, Profile, Group, State, Search string
+	Nodes, Profiles, Groups             []string
+}
+
+// Option is a select's option.
+type Option struct {
+	Value, Name string
+}
+
+// Servers is the servers list.
+templ Servers(p view.Page, rows []view.ServerRow, f Filters, profiles []Option, channels []string, total int) {
+	@parts.Shell(p) {
+		@parts.Head("Servers", view.Count(total, "server", "servers")+" in the fleet") {
+			if p.Can("admin") {
+				<a href="/servers/new" class={ view.Primary }>
+					@parts.Icon("plus", "size-4")
+					New servers
+				</a>
+			}
+		}
+		@parts.Body() {
+			<form method="get" action="/servers" class="flex flex-wrap items-end gap-2">
+				@filterSelect("node", "Node", f.Node, f.Nodes)
+				@filterSelect("profile", "Profile", f.Profile, f.Profiles)
+				@filterSelect("group", "Group", f.Group, f.Groups)
+				@filterSelect("state", "State", f.State, []string{"up", "playing", "lobby", "stopped", "crashed", "blocked", "unknown"})
+				<label class="min-w-48 flex-1">
+					<span class="sr-only">Search</span>
+					<input name="q" value={ f.Search } placeholder="Search a name or a slug" class={ view.Input }/>
+				</label>
+				<button type="submit" class={ view.Secondary }>
+					@parts.Icon("filter", "size-4")
+					Filter
+				</button>
+				if f.Node != "" || f.Profile != "" || f.Group != "" || f.State != "" || f.Search != "" {
+					<a href="/servers" class="text-sm text-muted hover:text-ink">clear</a>
+				}
+			</form>
+			if p.Can("moderator") && len(rows) > 0 {
+				@BulkBar(p, profiles, channels, f.Groups)
+			}
+			<div class={ view.Panel }>
+				if len(rows) == 0 {
+					if total == 0 {
+						@parts.Empty("No servers yet: make them from a profile, on a node.") {
+							if p.Can("admin") {
+								<a href="/servers/new" class={ view.Primary }>New servers</a>
+							}
+						}
+					} else {
+						@parts.Empty("No server matches the filters.") {
+							<a href="/servers" class={ view.Secondary }>Clear the filters</a>
+						}
+					}
+				} else {
+					<div class="flex items-center gap-3 px-4 py-2 text-xs text-muted">
+						if p.Can("moderator") {
+							<label class="flex items-center gap-2">
+								<input type="checkbox" class={ view.Check } data-select-all aria-label="Select every server shown"/>
+								<span data-selected>select</span>
+							</label>
+						}
+						<span class="ml-auto">{ view.Count(len(rows), "server", "servers") } shown</span>
+					</div>
+					@parts.RowHeader(p.Can("moderator"))
+					for _, r := range rows {
+						@parts.Row(r, p.Can("moderator"), p.CSRF)
+					}
+				}
+			</div>
+		}
+	}
+}
+
+templ filterSelect(name, label, value string, options []string) {
+	<label class="w-36">
+		<span class="mb-1 block text-xs text-faint">{ label }</span>
+		<select name={ name } class={ view.Select }>
+			<option value="">any</option>
+			for _, o := range options {
+				<option value={ o } selected?={ o == value }>{ o }</option>
+			}
+		</select>
+	</label>
+}
+
+// BulkBar is the selection's actions (its form's checkboxes are the rows').
+templ BulkBar(p view.Page, profiles []Option, channels []string, groups []string) {
+	<form id="bulk" method="post" action="/servers/bulk" class="flex flex-wrap items-end gap-2 rounded-lg border border-line bg-panel px-4 py-3">
+		@parts.CSRF(p.CSRF)
+		<input type="hidden" name="back" value="/servers"/>
+		<label class="w-56">
+			<span class="mb-1 block text-xs text-faint">With the selected servers</span>
+			<select name="action" class={ view.Select } data-bulk-action>
+				for _, a := range core.Actions {
+					if p.Can("admin") || a.ID == "say" || a.ID == "next" || a.ID == "end_game" {
+						<option value={ a.ID }>{ a.Name }</option>
+					}
+				}
+			</select>
+		</label>
+		<label class="min-w-48 flex-1" data-for="say set_rotation add_group remove_group command">
+			<span class="mb-1 block text-xs text-faint">Text, rotation or group</span>
+			<input name="text" class={ view.Input } placeholder="restart in 5 minutes · bloodgulch:ctf, … · eu"/>
+		</label>
+		<label class="w-44" data-for="change_profile">
+			<span class="mb-1 block text-xs text-faint">Profile</span>
+			<select name="profile" class={ view.Select }>
+				for _, o := range profiles {
+					<option value={ o.Value }>{ o.Name }</option>
+				}
+			</select>
+		</label>
+		<label class="w-36" data-for="update">
+			<span class="mb-1 block text-xs text-faint">Release</span>
+			<select name="channel" class={ view.Select }>
+				<option value="latest">latest</option>
+				for _, c := range channels {
+					<option value={ c }>{ c }</option>
+				}
+			</select>
+		</label>
+		<label class="w-40" data-for="drain_restart drain_stop update">
+			<span class="mb-1 block text-xs text-faint">Stop once</span>
+			<select name="after" class={ view.Select }>
+				<option value="game">the game ends</option>
+				<option value="empty">it is empty</option>
+				<option value="now">now</option>
+			</select>
+		</label>
+		<label class="min-w-40 flex-1" data-for="drain_restart drain_stop update">
+			<span class="mb-1 block text-xs text-faint">Notice to the players</span>
+			<input name="notice" class={ view.Input } placeholder="The server restarts after this game"/>
+		</label>
+		<button type="submit" class={ view.Primary }>Run</button>
+		<p class="w-full text-xs text-faint">A bulk action is a job: its page shows each server's outcome. Rolling actions go two servers of a node at a time.</p>
+	</form>
+}
+
+// NewServers is the form that makes servers from a profile.
+templ NewServers(p view.Page, profiles []Option, nodes []string, channels []string, groups []string, warning string) {
+	@parts.Shell(p) {
+		@parts.Head("New servers", "Profile × nodes × count: each gets its name, its ports and its slug.")
+		@parts.Body() {
+			if len(profiles) == 0 || len(nodes) == 0 {
+				@parts.Card("", "") {
+					@parts.Empty("A server needs a profile (what kind of server) and a node (where it runs).") {
+						if len(nodes) == 0 {
+							<a href="/nodes/add" class={ view.Secondary }>Add a node</a>
+						}
+						if len(profiles) == 0 {
+							<a href="/profiles/new" class={ view.Primary }>New profile</a>
+						}
+					}
+				}
+			} else {
+				if warning != "" {
+					<div class="rounded-md border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm">{ warning }</div>
+				}
+				<form method="post" action="/servers" class="grid max-w-3xl gap-4 rounded-lg border border-line bg-panel p-5 md:grid-cols-2">
+					@parts.CSRF(p.CSRF)
+					@parts.Field("profile", "Profile", "Its settings, rotation and gametypes; each server can override them.") {
+						<select id="profile" name="profile" class={ view.Select } required>
+							for _, o := range profiles {
+								<option value={ o.Value }>{ o.Name }</option>
+							}
+						</select>
+					}
+					@parts.Field("count", "How many", "1 to 100.") {
+						<input id="count" name="count" type="number" min="1" max="100" value="1" class={ view.Input } required/>
+					}
+					<div class="space-y-1.5 md:col-span-2">
+						<span class={ view.Label }>Nodes</span>
+						<div class="flex flex-wrap gap-3">
+							for i, n := range nodes {
+								<label class="flex items-center gap-2 rounded-md border border-line px-3 py-1.5 text-sm">
+									<input type="checkbox" name="node" value={ n } class={ view.Check } checked?={ i == 0 }/>
+									{ n }
+								</label>
+							}
+						</div>
+						<p class={ view.Hint }>Several: the servers are spread over them, the least loaded first.</p>
+					</div>
+					@parts.Field("pattern", "Names", "{n} is the server's number: BTB EU #{n}. Empty: the profile's name and a number.") {
+						<input id="pattern" name="pattern" class={ view.Input } placeholder="BTB EU #{n}"/>
+					}
+					@parts.Field("groups", "Groups", "Labels, separated by commas (eu, event-night).") {
+						<input id="groups" name="groups" class={ view.Input } list="group-names"/>
+						<datalist id="group-names">
+							for _, g := range groups {
+								<option value={ g }></option>
+							}
+						</datalist>
+					}
+					@parts.Field("channel", "Release", "The profile's channel, unless one is chosen.") {
+						<select id="channel" name="channel" class={ view.Select }>
+							<option value="">the profile's</option>
+							<option value="latest">latest</option>
+							for _, c := range channels {
+								<option value={ c }>{ c }</option>
+							}
+						</select>
+					}
+					<label class="flex items-center gap-2 self-end text-sm">
+						<input type="checkbox" name="start" value="1" checked class={ view.Check }/>
+						Start them now
+					</label>
+					<div class="md:col-span-2">
+						<button type="submit" class={ view.Primary }>Make the servers</button>
+					</div>
+				</form>
+			}
+		}
+	}
+}

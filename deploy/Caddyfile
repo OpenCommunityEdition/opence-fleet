@@ -1,0 +1,9 @@
+{$FLEET_DOMAIN} {
+	# (the pages' live stream, /events, and the API's, are sent as they come:
+	# not compressed, not buffered)
+	@compressible not path /events /api/v1/stream
+	encode @compressible gzip
+	reverse_proxy fleet:8070 {
+		flush_interval -1
+	}
+}

@@ -1,0 +1,885 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/agentproto"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// ServerView is a server's page's data.
+type ServerView struct {
+	Row          view.ServerRow
+	Instance     core.Instance
+	ProfileName  string
+	Channel      string
+	KeyID        string
+	ServerID     string
+	Invite       string
+	JoinPassword string
+	Spark        string
+	Applied      *agentproto.Applied
+	Since        string
+	Exit         *int
+	Tail         []string
+	Capabilities []string
+	ServerBuild  string
+	Feed         []view.FeedLine
+	Profiles     []Option
+	Channels     []string
+	Online       bool
+	Tab          string
+}
+
+// SettingLine is a setting on the Settings tab.
+type SettingLine struct {
+	Name, Type, Value, Default, Comment, Env, Source string
+	Choices                                          []string
+	Pinned, Secret, Live, Override                   bool
+}
+
+// ServerTabs is a server's tabs.
+func ServerTabs(slug string) []parts.Tab {
+	base := "/servers/" + slug
+	var tabs []parts.Tab
+	for _, t := range [][2]string{{"overview", "Overview"}, {"players", "Players"}, {"rotation", "Rotation"},
+		{"gametypes", "Gametypes"}, {"bans", "Bans"}, {"console", "Console"}, {"settings", "Settings"},
+		{"files", "Files"}, {"history", "History"}} {
+		path := base + "/" + t[0]
+		if t[0] == "overview" {
+			path = base
+		}
+		tabs = append(tabs, parts.Tab{ID: t[0], Name: t[1], Path: path})
+	}
+	return tabs
+}
+
+// ServerFrame is a server page's head and tabs.
+templ ServerFrame(p view.Page, v ServerView) {
+	@parts.Shell(p) {
+		<header class="flex flex-wrap items-center gap-3 px-4 pt-4 lg:px-6">
+			<div class="min-w-0">
+				<div class="text-xs text-faint"><a href="/servers" class="hover:text-ink">Servers</a> › { v.Instance.Slug }</div>
+				<h1 class="text-2xl font-semibold tracking-tight">{ v.Instance.Name }</h1>
+			</div>
+			@parts.State(v.Row.State, v.Row.Tone)
+			if v.Row.RestartNeeded {
+				@parts.Badge(view.Warn, "restart needed")
+			}
+			if v.Row.UpdateAvailable {
+				@parts.Badge(view.Info, "update available")
+			}
+			<div class="ml-auto flex flex-wrap items-center gap-2">
+				if p.Can("admin") {
+					if v.Instance.Running == 0 || v.Row.State == "stopped" || v.Row.State == "crashed" || v.Row.State == "blocked" {
+						@parts.Post("/servers/"+v.Instance.Slug+"/start", "Start", view.Primary, p.CSRF)
+					}
+					if v.Instance.Running != 0 {
+						@parts.Post("/servers/"+v.Instance.Slug+"/restart", "Restart", view.Secondary, p.CSRF)
+						@DrainForm(p, v.Instance.Slug)
+						@parts.Post("/servers/"+v.Instance.Slug+"/stop", "Stop", view.Secondary, p.CSRF)
+					}
+				}
+			</div>
+		</header>
+		<div class="mt-3">
+			@parts.Tabs(ServerTabs(v.Instance.Slug), v.Tab)
+		</div>
+		@parts.Body() {
+			{ children... }
+		}
+	}
+}
+
+// DrainForm is a drained restart's or stop's form.
+templ DrainForm(p view.Page, slug string) {
+	<details class="relative">
+		<summary class={ view.Secondary + " list-none [&::-webkit-details-marker]:hidden" }>Drain…</summary>
+		<form method="post" action={ templ.SafeURL("/servers/" + slug + "/drain") } class="absolute right-0 z-30 mt-2 w-80 space-y-3 rounded-lg border border-line-strong bg-panel p-4 shadow-2xl shadow-black/50 max-sm:fixed max-sm:inset-x-3 max-sm:w-auto">
+			@parts.CSRF(p.CSRF)
+			<p class="text-sm text-muted">The listings are withdrawn so that nobody new finds it; it stops once…</p>
+			<select name="after" class={ view.Select }>
+				<option value="game">its game ends</option>
+				<option value="empty">it is empty</option>
+			</select>
+			<input name="notice" class={ view.Input } placeholder="A notice: this server restarts after this game"/>
+			<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="restart" value="1" checked class={ view.Check }/> then start it again</label>
+			<div class="flex justify-end"><button type="submit" class={ view.Primary }>Drain</button></div>
+		</form>
+	</details>
+}
+
+// ServerLive is the overview's live card (the live fragment server:<slug>).
+templ ServerLive(v ServerView, p view.Page) {
+	<section id="server-live" sse-swap={ "server:" + v.Instance.Slug } hx-swap="outerHTML" class="grid gap-4 lg:grid-cols-3">
+		<div class="rounded-lg border border-line bg-panel p-5 lg:col-span-2">
+			<div class="flex flex-wrap items-center gap-2">
+				@parts.State(v.Row.State, v.Row.Tone)
+				<span class="text-sm text-muted">{ v.Since }</span>
+			</div>
+			if s := v.Row.Status; s != nil {
+				<div class="mt-4 grid gap-4 sm:grid-cols-3">
+					<div>
+						<div class="text-xs tracking-wide text-faint uppercase">Game</div>
+						<div class="mt-1 text-lg font-semibold">{ view.MapTitle(s.Map) }</div>
+						<div class="text-sm text-muted">
+							{ firstOf(s.Variant, s.Gametype) }
+							if len(s.TeamScores) == 2 {
+								· { view.Itoa(s.TeamScores[0]) }–{ view.Itoa(s.TeamScores[1]) }
+							}
+						</div>
+					</div>
+					<div>
+						<div class="text-xs tracking-wide text-faint uppercase">Players</div>
+						<div class="mt-1 text-lg font-semibold tabular-nums">{ view.Itoa(s.Players) } <span class="text-sm text-faint">/ { view.Itoa(s.MaxPlayers) }</span></div>
+						if v.Spark != "" {
+							<svg viewBox="0 0 120 32" class="mt-1 h-6 w-full text-accent" preserveAspectRatio="none" aria-hidden="true">
+								<polyline fill="none" stroke="currentColor" stroke-width="1.5" points={ v.Spark }></polyline>
+							</svg>
+						}
+					</div>
+					<div>
+						<div class="text-xs tracking-wide text-faint uppercase">Next</div>
+						if s.Rotation.Next != nil {
+							<div class="mt-1 text-lg font-semibold">{ view.MapTitle(s.Rotation.Next.Map) }</div>
+							<div class="text-sm text-muted">{ s.Rotation.Next.Gametype }</div>
+						} else {
+							<div class="mt-1 text-sm text-muted">—</div>
+						}
+					</div>
+				</div>
+				<div class="mt-4 text-sm text-muted">{ v.Row.Game }</div>
+				if s.Drain != nil {
+					<p class="mt-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">Draining: it stops once { drainWords(s.Drain.After) }.</p>
+				}
+			} else {
+				<p class="mt-4 text-sm text-muted">{ v.Row.Game }</p>
+				if len(v.Tail) > 0 {
+					<pre class="mt-3 max-h-48 overflow-auto rounded-md border border-line bg-raised p-3 whitespace-pre-wrap text-muted">{ view.Join(v.Tail, "\n") }</pre>
+				}
+			}
+		</div>
+		<div class="rounded-lg border border-line bg-panel p-5">
+			<div class="text-xs tracking-wide text-faint uppercase">Masters</div>
+			if v.Row.Status != nil && len(v.Row.Status.Masters) > 0 {
+				<ul class="mt-2 space-y-2 text-sm">
+					for _, m := range v.Row.Status.Masters {
+						<li>
+							<div class="flex items-center gap-2">
+								if m.Listed {
+									<span class={ view.Dot(view.OK) }></span> listed
+								} else {
+									<span class={ view.Dot(view.Warn) }></span> not listed
+								}
+								<span class="truncate text-xs text-faint">{ m.URL }</span>
+							</div>
+							<div class="text-xs text-muted">probe { firstOf(m.Probe, "—") } { m.Code } { m.Message }</div>
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="mt-2 text-sm text-muted">
+					if v.KeyID == "" {
+						Not published: the fleet has no publisher key (make one on the <a href="/masters">Masters</a> page).
+					} else {
+						No master's answer yet.
+					}
+				</p>
+			}
+			if v.Row.Status != nil && v.Row.Status.Listing.Invite != "" && p.Can("admin") {
+				<div class="mt-4 text-xs tracking-wide text-faint uppercase">Invite</div>
+				<div class="mt-1">
+					@parts.Copy(v.Row.Status.Listing.Invite)
+				</div>
+			}
+		</div>
+	</section>
+}
+
+func firstOf(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func drainWords(after string) string {
+	if after == "empty" {
+		return "it is empty"
+	}
+	return "its game ends"
+}
+
+// ServerOverview is the Overview tab.
+templ ServerOverview(p view.Page, v ServerView) {
+	@ServerFrame(p, v) {
+		@ServerLive(v, p)
+		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+			<div class="space-y-4">
+				@parts.Card("This server", "") {
+					@parts.Pad() {
+						@parts.KV() {
+							@parts.Item("Node") {
+								<a href={ templ.SafeURL("/nodes/" + v.Row.Node) }>{ v.Row.Node }</a>
+								if !v.Online {
+									<span class="text-bad">(offline)</span>
+								}
+							}
+							@parts.Item("Ports") {
+								<span class="tabular-nums">tunnel { view.I64(v.Instance.TunnelPort) }/udp · web { view.I64(v.Instance.WebPort) }/tcp on the node's loopback</span>
+							}
+							@parts.Item("Profile") {
+								if v.ProfileName != "" {
+									<a href={ templ.SafeURL("/profiles/" + view.I64(*v.Instance.ProfileID)) }>{ v.ProfileName }</a>
+								} else {
+									none
+								}
+								if len(v.Instance.Overrides.Settings) > 0 {
+									<span class="text-muted">· { view.Count(len(v.Instance.Overrides.Settings), "override", "overrides") }</span>
+								}
+							}
+							@parts.Item("Release") {
+								{ firstOf(v.Row.Build, "—") } <span class="text-muted">· follows { v.Channel }</span>
+								if v.ServerBuild != "" && v.ServerBuild != v.Row.Build {
+									<span class="text-muted">· the server says { v.ServerBuild }</span>
+								}
+							}
+							@parts.Item("On the masters") {
+								if v.KeyID != "" {
+									server id <code>{ v.ServerID }</code> <span class="text-muted">(key { v.KeyID }, instance { v.Instance.Slug })</span>
+								} else {
+									<span class="text-muted">no publisher key</span>
+								}
+							}
+							if p.Can("admin") && v.JoinPassword != "" {
+								@parts.Item("Join password") {
+									<code>{ v.JoinPassword }</code>
+								}
+							}
+							@parts.Item("Groups") {
+								if len(v.Instance.Groups) == 0 {
+									<span class="text-muted">none</span>
+								}
+								for _, g := range v.Instance.Groups {
+									<span class="mr-1">
+										@parts.Badge(view.Neutral, g)
+									</span>
+								}
+							}
+							if len(v.Capabilities) > 0 {
+								@parts.Item("The game's") {
+									<span class="text-xs text-muted">{ view.Join(v.Capabilities, ", ") }</span>
+								}
+							}
+						}
+					}
+				}
+				if v.Applied != nil && (len(v.Applied.Errors) > 0 || v.Applied.RestartNeeded) {
+					@parts.Card("The last change", "") {
+						@parts.Pad() {
+							if len(v.Applied.Applied) > 0 {
+								<p class="text-sm">Applied live: { view.Join(v.Applied.Applied, ", ") }.</p>
+							}
+							for _, e := range v.Applied.Errors {
+								<p class="mt-1 text-sm text-bad">{ e.Name }: { e.Message } ({ e.Code })</p>
+							}
+							if v.Applied.RestartNeeded {
+								<p class="mt-1 text-sm text-warn">The rest waits for a restart (ports, the environment, the release, init.txt).</p>
+							}
+						}
+					}
+				}
+				if p.Can("admin") {
+					@ServerEdit(p, v)
+				}
+			</div>
+			<div class="space-y-4">
+				if p.Can("moderator") && v.Row.Up() {
+					@parts.Card("Say", "A notice on every player's screen.") {
+						@parts.Pad() {
+							<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/say") } class="flex gap-2">
+								@parts.CSRF(p.CSRF)
+								<input name="text" class={ view.Input } maxlength="200" required/>
+								<button type="submit" class={ view.Primary }>Say</button>
+							</form>
+							<div class="mt-3 flex gap-2">
+								@parts.Post("/servers/"+v.Instance.Slug+"/next", "Next map", view.Secondary+view.Small, p.CSRF)
+							</div>
+						}
+					}
+				}
+				<div class="rounded-lg border border-line bg-panel p-5">
+					<h2 class="text-base font-semibold">Feed</h2>
+					@parts.Feed(v.Feed, "feed:"+v.Instance.Slug, "Nothing yet.")
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// ServerEdit is the server's own settings: name, profile, release, key,
+// notes, and the dangerous things.
+templ ServerEdit(p view.Page, v ServerView) {
+	@parts.Card("Name, profile and release", "") {
+		@parts.Pad() {
+			<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/edit") } class="grid gap-4 md:grid-cols-2">
+				@parts.CSRF(p.CSRF)
+				@parts.Field("name", "Name", "The fleet's name for it; the game's is server.name (its profile's, or the Settings tab's).") {
+					<input id="name" name="name" class={ view.Input } value={ v.Instance.Name } maxlength="64" required/>
+				}
+				@parts.Field("profile", "Profile", "") {
+					<select id="profile" name="profile" class={ view.Select }>
+						<option value="">none</option>
+						for _, o := range v.Profiles {
+							<option value={ o.Value } selected?={ v.Instance.ProfileID != nil && o.Value == view.I64(*v.Instance.ProfileID) }>{ o.Name }</option>
+						}
+					</select>
+				}
+				@parts.Field("channel", "Release", "Its own channel, else its profile's. A change is an update: a restart takes it.") {
+					<select id="channel" name="channel" class={ view.Select }>
+						<option value="" selected?={ v.Instance.Channel == "" }>the profile's</option>
+						<option value="latest" selected?={ v.Instance.Channel == "latest" }>latest</option>
+						for _, c := range v.Channels {
+							<option value={ c } selected?={ v.Instance.Channel == c }>{ c }</option>
+						}
+					</select>
+				}
+				@parts.Field("notes", "Notes", "") {
+					<input id="notes" name="notes" class={ view.Input } value={ v.Instance.Notes }/>
+				}
+				<div class="md:col-span-2"><button type="submit" class={ view.Primary }>Save</button></div>
+			</form>
+			<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/groups") } class="mt-4 flex flex-wrap items-end gap-2 border-t border-line pt-4">
+				@parts.CSRF(p.CSRF)
+				<label class="w-48">
+					<span class="mb-1 block text-xs text-faint">Group</span>
+					<input name="group" class={ view.Input } placeholder="eu" required/>
+				</label>
+				<button type="submit" name="op" value="add" class={ view.Secondary }>Add to the group</button>
+				<button type="submit" name="op" value="remove" class={ view.Secondary }>Take out of it</button>
+			</form>
+			<div class="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
+				@parts.Confirm("Rotate the web password", "The agent's password to this server's web port is made anew; the server takes it at its next restart, which it then needs.", "/servers/"+v.Instance.Slug+"/rotate-password", "Rotate", p.CSRF)
+				@parts.Confirm("Delete…", "Delete "+v.Instance.Name+": its server stops, its container goes, its folder is kept aside on its node for 7 days.", "/servers/"+v.Instance.Slug+"/delete", "Delete the server", p.CSRF)
+			</div>
+		}
+	}
+}
+
+// ServerPlayers is the Players tab.
+templ ServerPlayers(p view.Page, v ServerView, players []serverapi.Player, problem string) {
+	@ServerFrame(p, v) {
+		@PlayersTable(p, v.Instance.Slug, players, problem)
+	}
+}
+
+// PlayersTable is a server's roster with its actions (refreshed every 5 s).
+templ PlayersTable(p view.Page, slug string, players []serverapi.Player, problem string) {
+	<div id="players-table" class={ view.Panel } hx-get={ "/servers/" + slug + "/fragment/players" } hx-trigger="every 5s" hx-swap="outerHTML">
+		if problem != "" {
+			<p class="px-4 py-6 text-sm text-muted">{ problem }</p>
+		} else if len(players) == 0 {
+			<p class="px-4 py-6 text-sm text-muted">Nobody plays here now.</p>
+		} else {
+			<div class="overflow-x-auto">
+				<table class="w-full text-sm">
+					<thead>
+						<tr>
+							<th class={ view.Th }>Slot</th><th class={ view.Th }>Name</th><th class={ view.Th }>Team</th>
+							<th class={ view.Th + " text-right" }>Score</th><th class={ view.Th + " text-right" }>K / D</th>
+							<th class={ view.Th + " text-right" }>Ping</th>
+							if p.Can("admin") {
+								<th class={ view.Th }>Address</th>
+							}
+							<th class={ view.Th }></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, pl := range players {
+							<tr class={ view.Tr }>
+								<td class={ view.Td + " tabular-nums text-muted" }>{ view.Itoa(pl.Slot) }</td>
+								<td class={ view.Td + " font-medium" }>
+									{ pl.Name }
+									if pl.Muted {
+										<span class="text-xs text-warn">muted</span>
+									}
+								</td>
+								<td class={ view.Td }>{ teamName(pl.Team) }</td>
+								<td class={ view.Td + " text-right tabular-nums" }>{ view.Itoa(pl.Score) }</td>
+								<td class={ view.Td + " text-right tabular-nums" }>{ view.Itoa(pl.Kills) } / { view.Itoa(pl.Deaths) }</td>
+								<td class={ view.Td + " text-right tabular-nums" }>
+									if pl.Ping != nil {
+										{ view.Itoa(*pl.Ping) }
+									} else {
+										—
+									}
+								</td>
+								if p.Can("admin") {
+									<td class={ view.Td + " text-xs text-muted" }>{ pl.Address } <span class="text-faint">{ view.Short(pl.HWID, 12) }</span></td>
+								}
+								<td class={ view.Td + " text-right" }>
+									if p.Can("moderator") {
+										@PlayerActions(p, slug, pl)
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+}
+
+func teamName(team int) string {
+	switch team {
+	case 0:
+		return "red"
+	case 1:
+		return "blue"
+	}
+	return "—"
+}
+
+// PlayerActions is a player's kick, ban, mute and tell.
+templ PlayerActions(p view.Page, slug string, pl serverapi.Player) {
+	<details class="relative inline-block text-left">
+		<summary class={ view.Secondary + view.Small + " list-none [&::-webkit-details-marker]:hidden" }>Act…</summary>
+		<div class="absolute right-0 z-30 mt-2 w-72 space-y-3 rounded-lg border border-line-strong bg-panel p-4 text-left shadow-2xl shadow-black/50">
+			<form method="post" action={ templ.SafeURL("/servers/" + slug + "/players/" + view.Itoa(pl.Slot) + "/kick") }>
+				@parts.CSRF(p.CSRF)
+				<input type="hidden" name="name" value={ pl.Name }/>
+				<button type="submit" class={ view.Secondary + " w-full" }>Kick { pl.Name }</button>
+			</form>
+			<form method="post" action={ templ.SafeURL("/servers/" + slug + "/players/" + view.Itoa(pl.Slot) + "/ban") } class="space-y-2">
+				@parts.CSRF(p.CSRF)
+				<input type="hidden" name="name" value={ pl.Name }/>
+				<div class="flex gap-2">
+					<select name="duration" class={ view.Select }>
+						<option value="1h">1 hour</option>
+						<option value="24h">1 day</option>
+						if p.Can("admin") {
+							<option value="168h">1 week</option>
+							<option value="">{ "for ever" }</option>
+						}
+					</select>
+				</div>
+				<input name="reason" class={ view.Input } placeholder="The reason (team killing)"/>
+				<label class="flex items-center gap-2 text-xs text-muted"><input type="checkbox" name="fleet" value="1" checked class={ view.Check }/> on every server (a fleet ban)</label>
+				<button type="submit" class={ view.Danger + " w-full" }>Ban { pl.Name }</button>
+			</form>
+			<form method="post" action={ templ.SafeURL("/servers/" + slug + "/players/" + view.Itoa(pl.Slot) + "/tell") } class="flex gap-2">
+				@parts.CSRF(p.CSRF)
+				<input type="hidden" name="name" value={ pl.Name }/>
+				<input name="text" class={ view.Input } placeholder="Tell them…" required/>
+				<button type="submit" class={ view.Secondary }>Tell</button>
+			</form>
+			<form method="post" action={ templ.SafeURL("/servers/" + slug + "/players/" + view.Itoa(pl.Slot) + muteAction(pl.Muted)) }>
+				@parts.CSRF(p.CSRF)
+				<input type="hidden" name="name" value={ pl.Name }/>
+				<button type="submit" class={ view.Secondary + " w-full" }>
+					if pl.Muted {
+						Unmute
+					} else {
+						Mute for 10 minutes
+					}
+				</button>
+			</form>
+		</div>
+	</details>
+}
+
+func muteAction(muted bool) string {
+	if muted {
+		return "/unmute"
+	}
+	return "/mute"
+}
+
+// RotationView is the Rotation tab's data.
+type RotationView struct {
+	Entries   []serverapi.Entry
+	Index     int
+	Text      string
+	Maps      []serverapi.MapInfo
+	Gametypes []string
+	Problem   string
+}
+
+// ServerRotation is the Rotation tab.
+templ ServerRotation(p view.Page, v ServerView, r RotationView) {
+	@ServerFrame(p, v) {
+		if r.Problem != "" {
+			<p class="text-sm text-muted">{ r.Problem }</p>
+		}
+		<div class="grid gap-4 lg:grid-cols-2">
+			@parts.Card("The rotation", "As the server plays it: the entry being played marked, the ones it refused struck out with why.") {
+				<ol class="border-t border-line text-sm">
+					for i, e := range r.Entries {
+						<li class={ "flex items-center gap-3 border-b border-line px-4 py-2 last:border-b-0", templ.KV("border-l-2 border-l-accent bg-raised", i == r.Index) }>
+							<span class="w-6 text-right text-xs text-faint tabular-nums">{ view.Itoa(i + 1) }</span>
+							<span class={ templ.KV("text-faint line-through", e.Rejected != nil) }>{ e.Text }</span>
+							if e.Rejected != nil {
+								<span class="ml-auto text-xs text-bad">{ *e.Rejected }</span>
+							} else if i == r.Index {
+								<span class="ml-auto text-xs text-accent">playing</span>
+							}
+						</li>
+					}
+					if len(r.Entries) == 0 {
+						<li class="px-4 py-4 text-muted">No entry (or the server is not up).</li>
+					}
+				</ol>
+			}
+			<div class="space-y-4">
+				if p.Can("moderator") && len(r.Maps) > 0 {
+					@parts.Card("Play now", "The next game, then the rotation goes on.") {
+						@parts.Pad() {
+							<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/play") } class="flex flex-wrap gap-2">
+								@parts.CSRF(p.CSRF)
+								<select name="map" class={ view.Select + " !w-auto flex-1" }>
+									for _, m := range r.Maps {
+										<option value={ m.Name }>{ view.MapTitle(m.Name) } ({ m.Kind })</option>
+									}
+								</select>
+								<select name="gametype" class={ view.Select + " !w-auto" }>
+									for _, g := range r.Gametypes {
+										<option value={ g }>{ g }</option>
+									}
+								</select>
+								<button type="submit" class={ view.Primary }>Play</button>
+							</form>
+							<div class="mt-3">
+								@parts.Post("/servers/"+v.Instance.Slug+"/next", "Next map now", view.Secondary+view.Small, p.CSRF)
+							</div>
+						}
+					}
+				}
+				if p.Can("admin") {
+					@parts.Card("This server's rotation", "Overrides its profile's; set whole, or not at all when the server refuses an entry. Empty: the profile's.") {
+						@parts.Pad() {
+							<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/rotation") } class="space-y-3">
+								@parts.CSRF(p.CSRF)
+								<textarea name="rotation" rows="8" class={ view.TextArea } placeholder="bloodgulch:ctf, sidewinder:team_slayer+score=50">{ r.Text }</textarea>
+								<p class={ view.Hint }>map[:gametype[+rule=value…]], separated by commas or lines; # starts a comment.</p>
+								<div class="flex gap-2">
+									<button type="submit" class={ view.Primary }>Set the rotation</button>
+									<button type="submit" name="reset" value="1" class={ view.Secondary }>Back to the profile's</button>
+								</div>
+							</form>
+						}
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+// GametypesView is the Gametypes tab's data.
+type GametypesView struct {
+	Files    []serverapi.GametypeFile
+	Builtin  []string
+	Profile  map[string]string
+	Editing  string
+	Text     string
+	Problem  string
+	Profiled bool
+}
+
+// ServerGametypes is the Gametypes tab.
+templ ServerGametypes(p view.Page, v ServerView, g GametypesView) {
+	@ServerFrame(p, v) {
+		if g.Problem != "" {
+			<p class="text-sm text-muted">{ g.Problem }</p>
+		}
+		<div class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+			@parts.Card("Files", "The server's gametypes folder: its profile's, and its own.") {
+				<ul class="border-t border-line text-sm">
+					for _, f := range g.Files {
+						<li class="flex items-center gap-2 border-b border-line px-4 py-2 last:border-b-0">
+							<a href={ templ.SafeURL("/servers/" + v.Instance.Slug + "/gametypes?edit=" + f.Name) } class="font-medium hover:text-accent">{ f.Name }</a>
+							<span class="text-xs text-faint">{ f.Base }</span>
+							if _, ok := g.Profile[f.Name]; ok {
+								<span class="ml-auto text-xs text-muted">profile</span>
+							}
+							if f.Error != nil {
+								<span class="ml-auto text-xs text-bad" title={ *f.Error }>error</span>
+							}
+						</li>
+					}
+					if len(g.Files) == 0 {
+						<li class="px-4 py-4 text-muted">None: the built-in gametypes alone.</li>
+					}
+				</ul>
+				<div class="border-t border-line px-4 py-3 text-xs text-faint">Built in: { view.Join(g.Builtin, ", ") }</div>
+			}
+			if p.Can("admin") {
+				@parts.Card("Edit", "Saved to the server, which checks every rule against its schema (and to its profile's file when it has one, so that a restart agrees).") {
+					@parts.Pad() {
+						<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/gametypes/" + firstOf(g.Editing, "new")) } class="space-y-3">
+							@parts.CSRF(p.CSRF)
+							@parts.Field("gt-name", "Name", "a-z, 0-9, '_' and '-'.") {
+								<input id="gt-name" name="name" class={ view.Input } value={ g.Editing } pattern="[a-z0-9_-]{1,32}" required/>
+							}
+							<textarea name="text" rows="16" class={ view.TextArea } placeholder={ "base = \"team_slayer\"\nname = \"Big Team\"\n\n[universal]\nscore_to_win = 50" }>{ g.Text }</textarea>
+							<div class="flex gap-2">
+								<button type="submit" class={ view.Primary }>Save</button>
+								if g.Editing != "" {
+									<button type="submit" name="delete" value="1" class={ view.Secondary }>Delete it</button>
+								}
+							</div>
+						</form>
+					}
+				}
+			}
+		</div>
+	}
+}
+
+// ServerBans is the Bans tab: the server's bans.txt and the fleet bans
+// it holds.
+templ ServerBans(p view.Page, v ServerView, bans []serverapi.Ban, problem string, fleet []db.InstanceBanState) {
+	@ServerFrame(p, v) {
+		@parts.Card("bans.txt", "The server's own bans: its moderators', and the fleet's.") {
+			if problem != "" {
+				<p class="border-t border-line px-4 py-4 text-sm text-muted">{ problem }</p>
+			} else if len(bans) == 0 {
+				<p class="border-t border-line px-4 py-4 text-sm text-muted">No ban.</p>
+			} else {
+				<div class="overflow-x-auto border-t border-line">
+					<table class="w-full text-sm">
+						<thead><tr><th class={ view.Th }>#</th><th class={ view.Th }>When</th><th class={ view.Th }>Players</th><th class={ view.Th }>Address</th><th class={ view.Th }>Reason</th><th class={ view.Th }>Until</th><th class={ view.Th }></th></tr></thead>
+						<tbody>
+							for _, b := range bans {
+								<tr class={ view.Tr }>
+									<td class={ view.Td + " text-muted tabular-nums" }>{ view.Itoa(b.N) }</td>
+									<td class={ view.Td + " whitespace-nowrap text-muted" }>{ b.When }</td>
+									<td class={ view.Td }>{ b.Players }</td>
+									<td class={ view.Td + " text-xs text-muted" }>{ b.IP } { view.Short(b.HWID, 12) }</td>
+									<td class={ view.Td }>{ b.Reason }</td>
+									<td class={ view.Td + " whitespace-nowrap text-muted" }>{ view.UnixPtr(b.Until, p.Zone) }</td>
+									<td class={ view.Td + " text-right" }>
+										if p.Can("admin") {
+											@parts.Post("/servers/"+v.Instance.Slug+"/bans/"+view.Itoa(b.N)+"/delete", "Unban", view.Secondary+view.Small, p.CSRF)
+										}
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		}
+		if len(fleet) > 0 {
+			@parts.Card("Fleet bans here", "") {
+				<ul class="border-t border-line text-sm">
+					for _, f := range fleet {
+						<li class="flex gap-3 border-b border-line px-4 py-2 last:border-b-0">
+							<a href="/bans" class="font-medium">#{ view.I64(f.BanID) }</a>
+							<span class="text-muted">{ f.State }</span>
+							<span class="text-xs text-faint">{ f.Detail }</span>
+						</li>
+					}
+				</ul>
+			}
+		}
+	}
+}
+
+// ServerConsole is the Console tab: the log (live with JavaScript) and the
+// command line.
+templ ServerConsole(p view.Page, v ServerView, lines []agentproto.Log, last []string) {
+	@ServerFrame(p, v) {
+		<div class="rounded-lg border border-line bg-panel" data-console={ v.Instance.Slug }>
+			<div class="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs" data-console-chips>
+				<span class="text-faint">Show</span>
+				for _, c := range []string{"server", "game", "player", "chat", "moderation", "net", "master", "console", "health", "agent"} {
+					<label class="flex items-center gap-1 text-muted"><input type="checkbox" checked value={ c } class={ view.Check }/> { c }</label>
+				}
+				<label class="ml-auto flex items-center gap-1 text-muted"><input type="checkbox" checked data-follow class={ view.Check }/> follow</label>
+			</div>
+			<pre class="h-[60dvh] overflow-auto px-4 py-3 leading-5 whitespace-pre-wrap" data-console-log>
+				for _, l := range lines {
+					<div data-cat={ l.Cat } class={ templ.KV("text-bad", l.Level == "error"), templ.KV("text-warn", l.Level == "warn"), templ.KV("text-muted", l.Source == "agent") }><span class="text-faint">{ logTime(l.Time, p) } { l.Cat }</span> { l.Text }</div>
+				}
+			</pre>
+			if p.Can("moderator") {
+				<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/command") } class="flex gap-2 border-t border-line px-4 py-3" data-console-form>
+					@parts.CSRF(p.CSRF)
+					<span class="self-center font-mono text-sm text-accent">›</span>
+					<input name="line" class={ view.Input + " font-mono" } autocomplete="off" enterkeyhint="send" placeholder={ consolePlaceholder(p) } required list="console-help"/>
+					<button type="submit" class={ view.Primary }>Run</button>
+				</form>
+			}
+			if len(last) > 0 {
+				<pre class="border-t border-line bg-raised px-4 py-3 whitespace-pre-wrap">{ view.Join(last, "\n") }</pre>
+			}
+		</div>
+		<p class="text-xs text-faint">
+			if p.Can("owner") {
+				Your commands run as the server's owner, on its console (quit, sv_restart and the game's own commands too).
+			} else {
+				Your commands run with your role's rights on the server ({ p.User.Role }).
+			}
+		</p>
+	}
+}
+
+func consolePlaceholder(p view.Page) string {
+	if p.Can("owner") {
+		return "sv_status · say hello · sv_map bloodgulch ctf"
+	}
+	return "sv_status · say hello"
+}
+
+func logTime(ms int64, p view.Page) string {
+	return view.Clock(timeOf(ms), p.Zone)
+}
+
+// ServerSettings is the Settings tab: every setting with where its value
+// comes from.
+templ ServerSettings(p view.Page, v ServerView, settings []SettingLine, fromServer bool) {
+	@ServerFrame(p, v) {
+		<p class="text-sm text-muted">
+			if fromServer {
+				As the server serves them (GET /api/settings). A setting of this server overrides its profile's; the environment's are the fleet's own, pinned.
+			} else {
+				The server is not up: these are the fleet's values for it.
+			}
+		</p>
+		<div class={ view.Panel + " overflow-x-auto" }>
+			<table class="w-full text-sm">
+				<thead><tr><th class={ view.Th }>Setting</th><th class={ view.Th }>Value</th><th class={ view.Th }>From</th><th class={ view.Th }></th></tr></thead>
+				<tbody>
+					for _, s := range settings {
+						<tr class={ view.Tr }>
+							<td class={ view.Td }>
+								<div class="font-mono text-xs">{ s.Name }</div>
+								<div class="max-w-md text-xs text-faint">{ s.Comment }</div>
+							</td>
+							<td class={ view.Td }>
+								if s.Pinned || !p.Can("admin") || s.Secret {
+									<span class="font-mono text-xs">
+										if s.Secret {
+											(a secret)
+										} else {
+											{ s.Value }
+										}
+									</span>
+								} else {
+									<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/setting") } class="flex gap-2">
+										@parts.CSRF(p.CSRF)
+										<input type="hidden" name="name" value={ s.Name }/>
+										if len(s.Choices) > 0 {
+											<select name="value" class={ view.Select + " !w-auto" }>
+												for _, c := range s.Choices {
+													<option value={ c } selected?={ c == s.Value }>{ c }</option>
+												}
+											</select>
+										} else if s.Type == "boolean" {
+											<select name="value" class={ view.Select + " !w-auto" }>
+												<option value="true" selected?={ s.Value == "true" }>true</option>
+												<option value="false" selected?={ s.Value == "false" }>false</option>
+											</select>
+										} else {
+											<input name="value" value={ s.Value } class={ view.InputInline + " w-48" }/>
+										}
+										<button type="submit" class={ view.Secondary + view.Small }>Set</button>
+									</form>
+								}
+							</td>
+							<td class={ view.Td + " text-xs" }>
+								<span class={ templ.KV("text-accent", s.Source == "this server"), templ.KV("text-muted", s.Source != "this server") }>{ s.Source }</span>
+								if s.Env != "" && s.Pinned {
+									<div class="text-faint">{ s.Env }</div>
+								}
+								if !s.Live {
+									<div class="text-faint">at a restart</div>
+								}
+							</td>
+							<td class={ view.Td + " text-right" }>
+								if s.Override && p.Can("admin") {
+									<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/setting") }>
+										@parts.CSRF(p.CSRF)
+										<input type="hidden" name="name" value={ s.Name }/>
+										<input type="hidden" name="reset" value="1"/>
+										<button type="submit" class="text-xs text-accent hover:underline">reset to the profile</button>
+									</form>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+// ServerFiles is the Files tab.
+templ ServerFiles(p view.Page, v ServerView, files map[string][]string, problem string) {
+	@ServerFrame(p, v) {
+		if problem != "" {
+			<p class="text-sm text-muted">{ problem }</p>
+		}
+		for _, name := range []string{"init.txt", "config.toml", "debug.txt", "stderr.txt"} {
+			@parts.Card(name, fileWords(name)) {
+				<pre class="max-h-96 overflow-auto border-t border-line px-4 py-3 whitespace-pre-wrap text-muted">
+					if lines, ok := files[name]; ok && len(lines) > 0 {
+						{ view.Join(lines, "\n") }
+					} else {
+						(empty, or not there yet)
+					}
+				</pre>
+			}
+		}
+	}
+}
+
+func fileWords(name string) string {
+	switch name {
+	case "init.txt":
+		return "Commands run at the start (its profile's)."
+	case "config.toml":
+		return "The game settings, written by the fleet before each start."
+	case "debug.txt":
+		return "The game's own log: its last 500 lines."
+	}
+	return "The platform layer's lines."
+}
+
+// ServerHistory is the History tab: the games played.
+templ ServerHistory(p view.Page, v ServerView, games []db.Game) {
+	@ServerFrame(p, v) {
+		<div class={ view.Panel + " overflow-x-auto" }>
+			if len(games) == 0 {
+				<p class="px-4 py-6 text-sm text-muted">No game yet.</p>
+			} else {
+				<table class="w-full text-sm">
+					<thead><tr><th class={ view.Th }>Started</th><th class={ view.Th }>Game</th><th class={ view.Th }>Scores</th><th class={ view.Th + " text-right" }>Peak</th><th class={ view.Th }>Lasted</th><th class={ view.Th }>Ended by</th></tr></thead>
+					<tbody>
+						for _, g := range games {
+							<tr class={ view.Tr }>
+								<td class={ view.Td + " whitespace-nowrap text-muted" }>{ view.Unix(g.Started, p.Zone) }</td>
+								<td class={ view.Td }>{ view.MapTitle(g.Map) } · { firstOf(g.Variant, g.Gametype) }</td>
+								<td class={ view.Td + " tabular-nums" }>{ scores(g.TeamScores) }</td>
+								<td class={ view.Td + " text-right tabular-nums" }>{ view.I64(g.PeakPlayers) }</td>
+								<td class={ view.Td + " text-muted" }>
+									if g.Ended != nil {
+										{ view.Duration(secondsOf(g.Duration)) }
+									} else {
+										playing
+									}
+								</td>
+								<td class={ view.Td + " text-muted" }>{ g.Reason }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+	}
+}

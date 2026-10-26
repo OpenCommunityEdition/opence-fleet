@@ -1,0 +1,137 @@
+package pages
+
+import (
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/view/parts"
+)
+
+// Login is the sign-in card.
+templ Login(p view.Page, next, name string, setupOpen bool) {
+	@parts.Narrow(p) {
+		<h1 class="text-2xl font-semibold tracking-tight">Sign in</h1>
+		<p class="mt-1 text-sm text-muted">To { p.Fleet }.</p>
+		if setupOpen {
+			<p class="mt-4 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-sm">
+				This fleet has no owner yet: open the setup link its first start printed (<code>docker compose logs fleet</code>, or the journal).
+			</p>
+		}
+		<form method="post" action="/login" class="mt-5 space-y-4">
+			<input type="hidden" name="next" value={ next }/>
+			@parts.Field("name", "Name", "") {
+				<input id="name" name="name" class={ view.Input } value={ name } autocomplete="username" required autofocus?={ name == "" }/>
+			}
+			@parts.Field("password", "Password", "") {
+				<input id="password" name="password" type="password" class={ view.Input } autocomplete="current-password" required autofocus?={ name != "" }/>
+			}
+			<label class="flex items-center gap-2 text-sm text-muted">
+				<input type="checkbox" name="remember" value="1" class={ view.Check }/>
+				Keep me signed in for 30 days
+			</label>
+			<button type="submit" class={ view.Primary + " w-full !py-2" }>Sign in</button>
+		</form>
+	}
+}
+
+// Setup is the first owner's form.
+templ Setup(p view.Page, code string) {
+	@parts.Narrow(p) {
+		<h1 class="text-2xl font-semibold tracking-tight">Set up the fleet</h1>
+		<p class="mt-1 text-sm text-muted">Make the owner's account: the owner invites the team and holds the publisher keys.</p>
+		<form method="post" action="/setup" class="mt-5 space-y-4">
+			<input type="hidden" name="code" value={ code }/>
+			@parts.Field("fleet", "The fleet's name", "Shown on its pages and in alerts.") {
+				<input id="fleet" name="fleet" class={ view.Input } value={ p.Fleet } maxlength="64"/>
+			}
+			@parts.Field("name", "Your name", "Letters, digits, '-', '_' and '.'.") {
+				<input id="name" name="name" class={ view.Input } autocomplete="username" required autofocus/>
+			}
+			@parts.Field("password", "Password", "10 characters or more.") {
+				<input id="password" name="password" type="password" class={ view.Input } autocomplete="new-password" minlength="10" required/>
+			}
+			<button type="submit" class={ view.Primary + " w-full !py-2" }>Make the owner</button>
+		</form>
+	}
+}
+
+// Invite is an invite's form.
+templ Invite(p view.Page, code, role string) {
+	@parts.Narrow(p) {
+		<h1 class="text-2xl font-semibold tracking-tight">Join { p.Fleet }</h1>
+		<p class="mt-1 text-sm text-muted">You are invited as { role }. Choose your name and password.</p>
+		<form method="post" action={ templ.SafeURL("/invite/" + code) } class="mt-5 space-y-4">
+			@parts.Field("name", "Your name", "Letters, digits, '-', '_' and '.'.") {
+				<input id="name" name="name" class={ view.Input } autocomplete="username" required autofocus/>
+			}
+			@parts.Field("password", "Password", "10 characters or more.") {
+				<input id="password" name="password" type="password" class={ view.Input } autocomplete="new-password" minlength="10" required/>
+			}
+			<button type="submit" class={ view.Primary + " w-full !py-2" }>Join</button>
+		</form>
+	}
+}
+
+// Problem is a page that says what went wrong.
+templ Problem(p view.Page, title, words string) {
+	if p.User != nil {
+		@parts.Shell(p) {
+			@parts.Head(title, "")
+			@parts.Body() {
+				<p class="text-sm text-muted">{ words }</p>
+				<a href="/" class={ view.Secondary }>Back to the dashboard</a>
+			}
+		}
+	} else {
+		@parts.Narrow(p) {
+			<h1 class="text-xl font-semibold">{ title }</h1>
+			<p class="mt-2 text-sm text-muted">{ words }</p>
+			<a href="/login" class={ view.Secondary + " mt-4" }>Sign in</a>
+		}
+	}
+}
+
+// Account is one's own page: the password.
+templ Account(p view.Page) {
+	@parts.Shell(p) {
+		@parts.Head("Your account", p.User.Name+" · "+p.User.Role)
+		@parts.Body() {
+			@parts.Card("Password", "Changing it signs you out everywhere else.") {
+				@parts.Pad() {
+					<form method="post" action="/account/password" class="max-w-sm space-y-4">
+						@parts.CSRF(p.CSRF)
+						@parts.Field("old", "Current password", "") {
+							<input id="old" name="old" type="password" class={ view.Input } autocomplete="current-password" required/>
+						}
+						@parts.Field("password", "New password", "10 characters or more.") {
+							<input id="password" name="password" type="password" class={ view.Input } autocomplete="new-password" minlength="10" required/>
+						}
+						<button type="submit" class={ view.Primary }>Change the password</button>
+					</form>
+				}
+			}
+		}
+	}
+}
+
+// More is the phone's menu: every section.
+templ More(p view.Page, sections [][3]string) {
+	@parts.Shell(p) {
+		@parts.Head("More", p.User.Name+" · "+p.User.Role)
+		@parts.Body() {
+			<nav class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+				for _, s := range sections {
+					<a href={ templ.SafeURL(s[1]) } class="flex items-center gap-2.5 rounded-lg border border-line bg-panel px-4 py-3 text-sm hover:bg-raised">
+						@parts.Icon(s[2], "size-4 text-muted")
+						{ s[0] }
+					</a>
+				}
+			</nav>
+			<div class="flex flex-wrap gap-2">
+				<a href="/account" class={ view.Secondary }>Your account</a>
+				@parts.Post("/theme", "Switch the theme", view.Secondary, p.CSRF) {
+					<input type="hidden" name="back" value="/more"/>
+				}
+				@parts.Post("/logout", "Sign out", view.Secondary, p.CSRF)
+			</div>
+		}
+	}
+}

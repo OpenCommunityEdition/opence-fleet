@@ -1,0 +1,7 @@
+.git
+bin/
+fleet-data/
+*.db
+*.db-*
+fleet.key
+tests/browser/node_modules
