@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -150,7 +151,22 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	rt := &fakeRuntime{}
-	a := New(&config.AgentConfig{Dir: t.TempDir(), Name: "test", URL: "http://127.0.0.1:1", Token: "x"}, "test",
+	// (a folder of the rig's own rather than t.TempDir: the supervisor's
+	// goroutines may still write a log line into it as the test ends, which
+	// would fail TempDir's removal; it is removed once they have stopped)
+	dir, err := os.MkdirTemp("", "agent-rig-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for range 50 {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
+	a := New(&config.AgentConfig{Dir: dir, Name: "test", URL: "http://127.0.0.1:1", Token: "x"}, "test",
 		slog.New(slog.DiscardHandler), rt, http.DefaultClient)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
