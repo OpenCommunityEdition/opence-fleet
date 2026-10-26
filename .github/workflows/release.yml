@@ -48,7 +48,7 @@ jobs:
           ./dist/opence-fleet-linux-amd64 version | grep -q " $GITHUB_REF_NAME "
           # (the installers and the files install.sh fetches; agent.sh as a
           # template: the control plane serves it filled in, at /agent.sh)
-          cp install.sh agent.sh compose.yaml compose.proxy.yaml dist/
+          cp install.sh agent.sh compose.yaml compose.proxy.yaml compose.http.yaml dist/
           cp deploy/Caddyfile deploy/opence-fleet.service deploy/opence-fleet-agent.service \
             deploy/fleet.env.example deploy/agent.env.example dist/
           (cd dist && sha256sum -- * > SHA256SUMS)

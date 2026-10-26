@@ -345,7 +345,8 @@ func (s *Server) sameOrigin(r *http.Request, origin string) bool {
 
 func (s *Server) plainHTTP(w http.ResponseWriter, r *http.Request) {
 	httpx.Fail(w, http.StatusForbidden, "tls_required", "the fleet takes sign-ins and changes over HTTPS, or from this "+
-		"machine's loopback: put it behind a TLS proxy (FLEET_TRUSTED_PROXIES) or set FLEET_TLS_CERT", "")
+		"machine's loopback: put it behind a TLS proxy (FLEET_TRUSTED_PROXIES), set FLEET_TLS_CERT, or, on a trusted "+
+		"network alone, FLEET_INSECURE_HTTP", "")
 }
 
 func wantsJSON(r *http.Request) bool {

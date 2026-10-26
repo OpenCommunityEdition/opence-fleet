@@ -103,3 +103,17 @@ func TestHSTS(t *testing.T) {
 		}
 	}
 }
+
+// TestInsecure: FLEET_INSECURE_HTTP takes plain HTTP from anywhere, but
+// never calls it secure (no Secure cookies, no HSTS over it).
+func TestInsecure(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://fleet.lan/", nil)
+	request.RemoteAddr = "192.0.2.10:5000"
+	if c := (&Clients{}).Of(request); c.Protected() {
+		t.Fatalf("plain HTTP from afar was protected: %+v", c)
+	}
+	c := (&Clients{Insecure: true}).Of(request)
+	if !c.Protected() || c.Secure || c.Local {
+		t.Fatalf("%+v", c)
+	}
+}

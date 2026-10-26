@@ -33,6 +33,7 @@ var Serve = []Option{
 	{Env: "FLEET_DATA", Flag: "data", Help: "the folder of the fleet's files: the library's blobs, the releases' zips, fleet.key, bin/", Default: "fleet-data"},
 	{Env: "FLEET_SECRET_KEY", Flag: "secret-key", Help: "the key that encrypts secrets at rest (made if missing; default: fleet.key in FLEET_DATA)"},
 	{Env: "FLEET_TRUSTED_PROXIES", Flag: "trusted-proxies", Help: "reverse proxies (addresses or CIDRs, commas) whose X-Forwarded-* are believed"},
+	{Env: "FLEET_INSECURE_HTTP", Flag: "insecure-http", Help: "take sign-ins, changes and agents over plain HTTP from anywhere, not only HTTPS and loopback: passwords, session cookies and node tokens then cross the network readable by anyone on the way (a trusted LAN or a test only)", Default: "false"},
 	{Env: "FLEET_TLS_CERT", Flag: "tls-cert", Help: "a certificate file, to serve HTTPS directly"},
 	{Env: "FLEET_TLS_KEY", Flag: "tls-key", Help: "the certificate's key file"},
 	{Env: "FLEET_MASTERS_FILE", Flag: "masters-file", Help: "a masters.txt naming the master servers the Masters page asks (default: the official master)"},
@@ -144,6 +145,7 @@ type ServeConfig struct {
 	ReleaseCheckInterval                         time.Duration
 	EventsDays, SamplesDays                      int
 	LogAddresses, PublicStatus, Metrics          bool
+	InsecureHTTP                                 bool
 	LogLevel, Updates, UpdateURL, UpdateKey      string
 	Timezone                                     *time.Location
 	CAFile                                       string
@@ -193,6 +195,8 @@ func LoadServe(v Values) (*ServeConfig, error) {
 	if err == nil && (c.SessionHours < 1 || c.SessionHours > 24*30) {
 		errs = append(errs, errors.New("FLEET_SESSION_HOURS: 1 to 720"))
 	}
+	c.InsecureHTTP, err = Bool(v.Get("FLEET_INSECURE_HTTP"))
+	check(err, "FLEET_INSECURE_HTTP")
 	c.LogAddresses, err = Bool(v.Get("FLEET_LOG_ADDRESSES"))
 	check(err, "FLEET_LOG_ADDRESSES")
 	c.PublicStatus, err = Bool(v.Get("FLEET_PUBLIC_STATUS"))

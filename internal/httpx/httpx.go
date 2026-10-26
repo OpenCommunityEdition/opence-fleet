@@ -18,6 +18,8 @@ import (
 // Clients works out where requests come from.
 type Clients struct {
 	Proxies []netip.Prefix
+	// plain HTTP is taken from anywhere (FLEET_INSECURE_HTTP: a LAN, a test)
+	Insecure bool
 }
 
 // Client is a request's origin.
@@ -29,6 +31,8 @@ type Client struct {
 	Local bool
 	// from a trusted proxy
 	Proxied bool
+	// the fleet takes plain HTTP from anywhere (FLEET_INSECURE_HTTP)
+	Insecure bool
 }
 
 func (c *Clients) trusted(ip netip.Addr) bool {
@@ -77,7 +81,7 @@ func (c *Clients) Of(r *http.Request) Client {
 	if !ok {
 		return Client{}
 	}
-	client := Client{IP: ip, Secure: r.TLS != nil}
+	client := Client{IP: ip, Secure: r.TLS != nil, Insecure: c.Insecure}
 	if !c.trusted(ip) {
 		client.Local = ip.IsLoopback()
 		return client
@@ -133,8 +137,8 @@ func (c *Clients) HSTS(next http.Handler) http.Handler {
 }
 
 // Protected tells whether a request may carry secrets: over TLS, or from
-// loopback directly.
-func (c Client) Protected() bool { return c.Secure || c.Local }
+// loopback directly (or anyhow, when the fleet was told to take plain HTTP).
+func (c Client) Protected() bool { return c.Secure || c.Local || c.Insecure }
 
 // JSON writes a JSON answer.
 func JSON(w http.ResponseWriter, status int, value any) {

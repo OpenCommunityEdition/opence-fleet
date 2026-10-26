@@ -35,8 +35,8 @@ curl -fsSL https://github.com/OpenCommunityEdition/opence-fleet/releases/latest/
 ```
 
 It asks how HTTPS reaches the fleet (Caddy in Docker gets the certificate,
-or a reverse proxy of your own forwards to `127.0.0.1:8070`), for the
-fleet's domain, and whether this machine also runs servers. It installs
+or a reverse proxy of your own forwards to `127.0.0.1:8070`, or no HTTPS at
+all), for the fleet's domain, and whether this machine also runs servers. It installs
 Docker if it is missing (it asks first), sets the control plane up in
 `/opt/opence-fleet`, starts it, and prints a **setup link**: open it to make
 the fleet's owner. When the machine runs servers, it is enrolled as the
@@ -45,6 +45,14 @@ that the games run as containers beside the control plane's, never inside
 it). Every question is also an option (`--domain`, `--proxy`, `--port`,
 `--servers`, `--node`, `--dir`, `--yes`; `install.sh --help`). Run it
 again to repair or switch an install: the data and the enrolment are kept.
+
+**Without HTTPS** (`--proxy insecure`, choice 3): the control plane is
+published on a port of every address (80 by default) and takes sign-ins,
+changes and the agents over plain HTTP (`FLEET_INSECURE_HTTP=true`,
+`compose.http.yaml`). Passwords, session cookies and node tokens then cross
+the network unencrypted, readable by anyone on the way, who could sign in
+as you or enrol a node of their own: use it on a network you trust, or for
+a test. The fleet's address may be a LAN host name or an IP address.
 
 ### Adding a node
 
@@ -128,6 +136,7 @@ the page's unless the variable is set, when the page shows it as pinned.
 | `FLEET_DATA` | `--data` | `fleet-data` | the folder of the fleet's files: the library's blobs, the releases' zips, fleet.key, bin/ |
 | `FLEET_SECRET_KEY` | `--secret-key` | — | the key that encrypts secrets at rest (made if missing; default: fleet.key in FLEET_DATA) |
 | `FLEET_TRUSTED_PROXIES` | `--trusted-proxies` | — | reverse proxies (addresses or CIDRs, commas) whose X-Forwarded-* are believed |
+| `FLEET_INSECURE_HTTP` | `--insecure-http` | `false` | take sign-ins, changes and agents over plain HTTP from anywhere, not only HTTPS and loopback: passwords, session cookies and node tokens then cross the network readable by anyone on the way (a trusted LAN or a test only) |
 | `FLEET_TLS_CERT` | `--tls-cert` | — | a certificate file, to serve HTTPS directly |
 | `FLEET_TLS_KEY` | `--tls-key` | — | the certificate's key file |
 | `FLEET_MASTERS_FILE` | `--masters-file` | — | a masters.txt naming the master servers the Masters page asks (default: the official master) |
@@ -231,7 +240,7 @@ keeps them out of the servers' logs and the fleet.
 | `internal/web`, `internal/view`, `static` | the pages (templ, Tailwind, htmx with server-sent events), the API, the console's WebSocket |
 | `tools/fakehalo` | the server without the game, for the tests (and its image: `tools/fakehalo/Dockerfile`) |
 | `tests/fleet`, `tests/conformance`, `tests/browser`, `tests/e2e` | a whole fleet in one test; fakehalo against the game's simulator; the pages in Chromium; the real game |
-| `deploy/`, `install.sh`, `agent.sh`, `compose*.yaml`, `Dockerfile` | deployment |
+| `deploy/`, `install.sh`, `agent.sh`, `compose*.yaml` (`compose.proxy.yaml`: your own proxy; `compose.http.yaml`: no HTTPS), `Dockerfile` | deployment |
 
 ## Building and testing
 

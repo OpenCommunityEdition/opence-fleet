@@ -19,10 +19,15 @@
 # Options (or the environment variables beside them):
 #   --domain <name>    OPENCE_DOMAIN        the fleet's domain
 #   --proxy <which>    OPENCE_PROXY         bundled (Caddy in Docker, on ports
-#                                           80 and 443) or external (your own
-#                                           proxy, forwarding to 127.0.0.1)
-#   --port <n>         OPENCE_PORT          the control plane's port on
-#                                           127.0.0.1, for an external proxy (8070)
+#                                           80 and 443), external (your own
+#                                           proxy, forwarding to 127.0.0.1), or
+#                                           insecure (no HTTPS: plain HTTP on a
+#                                           port of every address; passwords and
+#                                           tokens cross the network unencrypted)
+#   --port <n>         OPENCE_PORT          the control plane's port: on
+#                                           127.0.0.1 for an external proxy
+#                                           (8070), on every address for
+#                                           insecure (80)
 #   --servers <yes|no> OPENCE_SERVERS       this machine also runs servers (yes)
 #   --node <name>      OPENCE_NODE          its name as a node (the host name)
 #   --dir <path>       OPENCE_DIR           where it goes (/opt/opence-fleet)
@@ -54,7 +59,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 	--domain) [ $# -ge 2 ] || fail "--domain needs a name"; DOMAIN="$2"; shift 2 ;;
 	--domain=*) DOMAIN="${1#--domain=}"; shift ;;
-	--proxy) [ $# -ge 2 ] || fail "--proxy needs bundled or external"; PROXY="$2"; shift 2 ;;
+	--proxy) [ $# -ge 2 ] || fail "--proxy needs bundled, external or insecure"; PROXY="$2"; shift 2 ;;
 	--proxy=*) PROXY="${1#--proxy=}"; shift ;;
 	--port) [ $# -ge 2 ] || fail "--port needs a number"; PORT="$2"; shift 2 ;;
 	--port=*) PORT="${1#--port=}"; shift ;;
@@ -65,7 +70,7 @@ while [ $# -gt 0 ]; do
 	--dir) [ $# -ge 2 ] || fail "--dir needs a path"; DIR="$2"; shift 2 ;;
 	--dir=*) DIR="${1#--dir=}"; shift ;;
 	-y | --yes) YES=1; shift ;;
-	-h | --help) sed -n '2,36p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+	-h | --help) sed -n '2,41p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
 	*) fail "unknown option $1 (--help lists them)" ;;
 	esac
 done
@@ -150,11 +155,14 @@ if [ -z "$PROXY" ]; then
 		say "The fleet needs HTTPS in front of it (its agents connect only over HTTPS). Either:"
 		say "  1) Caddy, in Docker beside the control plane, gets the certificate itself (ports 80 and 443)"
 		say "  2) a reverse proxy of your own on this machine (nginx, Caddy, ...) forwards to the control plane"
+		say "  3) no HTTPS: plain HTTP on a port of this machine. INSECURE: passwords, sessions and node"
+		say "     tokens cross the network unencrypted (a trusted LAN or a test only)"
 		ask "Which? [1]"
 		case "$answer" in
 		"" | 1 | bundled) PROXY=bundled ;;
 		2 | external) PROXY=external ;;
-		*) fail "\"$answer\" is neither 1 nor 2" ;;
+		3 | insecure | http | none) PROXY=insecure ;;
+		*) fail "\"$answer\" is not 1, 2 or 3" ;;
 		esac
 	fi
 fi
@@ -172,12 +180,38 @@ external)
 	{ [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ]; } || fail "the port $PORT is not 1 to 65535"
 	say "Your proxy forwards to http://127.0.0.1:$PORT."
 	;;
-*) fail "--proxy is bundled or external, not \"$PROXY\"" ;;
+insecure | http | none)
+	PROXY=insecure
+	say ""
+	say "Plain HTTP, no HTTPS: the fleet's passwords, sign-in sessions and the nodes' tokens cross"
+	say "the network unencrypted, readable by anyone on the way, who can then sign in as you or"
+	say "enrol a node of their own. Use it on a network you trust, or for a test."
+	if [ -z "$YES" ] && [ -r /dev/tty ]; then
+		ask "Go on without HTTPS? [y/N]"
+		case "$answer" in
+		y | Y | yes) ;;
+		*) fail "stopped: run it again and choose 1 or 2 for HTTPS" ;;
+		esac
+	fi
+	if [ -z "$PORT" ] && [ -z "$YES" ] && [ -r /dev/tty ]; then
+		ask "The fleet's port on this machine (every address: the pages and the agents): [80]"
+		PORT="$answer"
+	fi
+	PORT="${PORT:-80}"
+	case "$PORT" in
+	*[!0-9]*) fail "the port \"$PORT\" is not a number" ;;
+	esac
+	{ [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ]; } || fail "the port $PORT is not 1 to 65535"
+	say "The fleet takes plain HTTP on port $PORT."
+	;;
+*) fail "--proxy is bundled, external or insecure, not \"$PROXY\"" ;;
 esac
 while [ -z "$DOMAIN" ]; do
 	[ -r /dev/tty ] || fail "no terminal to ask on: give the domain with --domain fleet.example.org"
 	if [ "$PROXY" = external ]; then
 		ask "The fleet's domain, which your proxy serves (such as fleet.example.org):"
+	elif [ "$PROXY" = insecure ]; then
+		ask "The name or address the fleet's users and nodes reach this machine by (fleet.lan, 192.168.1.20):"
 	else
 		ask "The fleet's domain (its DNS record points at this machine), such as fleet.example.org:"
 	fi
@@ -187,8 +221,16 @@ DOMAIN="$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]' | sed 's#^https\{0,
 case "$DOMAIN" in
 *[!a-z0-9.-]* | .* | *. | *..* | "") fail "\"$DOMAIN\" is not a domain name" ;;
 *.*) ;;
-*) fail "\"$DOMAIN\" is not a full domain name (fleet.example.org)" ;;
+# (a LAN's host name will do for plain HTTP; a certificate needs a full one)
+*) [ "$PROXY" = insecure ] || fail "\"$DOMAIN\" is not a full domain name (fleet.example.org)" ;;
 esac
+# (the fleet's public URL: its pages, the links, the agents' one-liner)
+if [ "$PROXY" = insecure ]; then
+	URL="http://$DOMAIN"
+	[ "$PORT" = 80 ] || URL="$URL:$PORT"
+else
+	URL="https://$DOMAIN"
+fi
 
 if [ "$PROXY" = bundled ] && command -v getent >/dev/null 2>&1; then
 	if ! getent ahosts "$DOMAIN" >/dev/null 2>&1; then
@@ -206,7 +248,7 @@ if command -v ss >/dev/null 2>&1; then
 		say "Warning: something already listens on port 80 or 443, which Caddy needs. If it is your own"
 		say "web server, run the installer again and choose 2 (--proxy external)."
 	fi
-	if [ "$PROXY" = external ] && ss -ltn 2>/dev/null | grep -Eq "[:.]${PORT}[[:space:]]" &&
+	if [ "$PROXY" != bundled ] && ss -ltn 2>/dev/null | grep -Eq "[:.]${PORT}[[:space:]]" &&
 		! printf '%s\n' "$running" | grep -q ":$PORT->"; then
 		fail "port $PORT on this machine is taken: choose another with --port"
 	fi
@@ -258,16 +300,17 @@ fi
 step "Files in $DIR"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-for f in compose.yaml compose.proxy.yaml Caddyfile SHA256SUMS; do
+for f in compose.yaml compose.proxy.yaml compose.http.yaml Caddyfile SHA256SUMS; do
 	fetch "$BASE/$f" "$tmp/$f" || fail "$BASE/$f could not be downloaded"
 done
 if command -v sha256sum >/dev/null 2>&1; then
-	(cd "$tmp" && grep -E '  (compose\.yaml|compose\.proxy\.yaml|Caddyfile)$' SHA256SUMS | sha256sum -c --status) ||
+	(cd "$tmp" && grep -E '  (compose\.yaml|compose\.proxy\.yaml|compose\.http\.yaml|Caddyfile)$' SHA256SUMS | sha256sum -c --status) ||
 		fail "the downloaded files are not the release's (SHA256SUMS)"
 fi
 $SUDO mkdir -p "$DIR/deploy"
 $SUDO install -m 644 "$tmp/compose.yaml" "$DIR/compose.yaml"
 $SUDO install -m 644 "$tmp/compose.proxy.yaml" "$DIR/compose.proxy.yaml"
+$SUDO install -m 644 "$tmp/compose.http.yaml" "$DIR/compose.http.yaml"
 $SUDO install -m 644 "$tmp/Caddyfile" "$DIR/deploy/Caddyfile"
 {
 	say "# install.sh's choices (docker compose reads this file)"
@@ -277,19 +320,23 @@ $SUDO install -m 644 "$tmp/Caddyfile" "$DIR/deploy/Caddyfile"
 		say "FLEET_PORT=$PORT"
 		# (the control plane's port on loopback, and no Caddy)
 		say "COMPOSE_FILE=compose.yaml:compose.proxy.yaml"
+	elif [ "$PROXY" = insecure ]; then
+		say "FLEET_PORT=$PORT"
+		# (the fleet's port on every address, plain HTTP taken, and no Caddy)
+		say "COMPOSE_FILE=compose.yaml:compose.http.yaml"
 	fi
 } >"$tmp/.env"
 $SUDO install -m 644 "$tmp/.env" "$DIR/.env"
 if $SUDO test -f "$DIR/fleet.env"; then
 	# (kept, with the domain's URL)
-	$SUDO sed -i "s#^FLEET_PUBLIC_URL=.*#FLEET_PUBLIC_URL=https://$DOMAIN#" "$DIR/fleet.env"
+	$SUDO sed -i "s#^FLEET_PUBLIC_URL=.*#FLEET_PUBLIC_URL=$URL#" "$DIR/fleet.env"
 	say "Kept the settings in $DIR/fleet.env."
 else
 	cat >"$tmp/fleet.env" <<EOF
 # The control plane's settings (every option: README.md, "Options"). The
 # fleet's name, time zone, retention and webhooks are set on its Settings
 # page; a variable set here wins over the page.
-FLEET_PUBLIC_URL=https://$DOMAIN
+FLEET_PUBLIC_URL=$URL
 # updates: notify (the owners update with a button), auto, or off
 #FLEET_UPDATES=notify
 #FLEET_TIMEZONE=Europe/Paris
@@ -341,7 +388,7 @@ server {
 PROXYEOF
 	$SUDO install -m 644 "$tmp/reverse-proxy.txt" "$DIR/reverse-proxy.txt"
 fi
-say "Wrote compose.yaml, compose.proxy.yaml, deploy/Caddyfile, .env and fleet.env."
+say "Wrote compose.yaml, compose.proxy.yaml, compose.http.yaml, deploy/Caddyfile, .env and fleet.env."
 
 # ---------- start
 
@@ -356,7 +403,7 @@ if ! $SUDO docker compose pull --quiet; then
 fi
 # (recreated: a repair runs the settings just written, and the log below is
 # this start's)
-if [ "$PROXY" = external ]; then
+if [ "$PROXY" != bundled ]; then
 	# (the bundled Caddy of an earlier install goes)
 	$SUDO docker compose --profile bundled-caddy rm -sf caddy >/dev/null 2>&1 || true
 fi
@@ -393,19 +440,19 @@ if [ "$SERVERS" = yes ] && [ -z "$enrolled" ]; then
 	[ -n "$token" ] || fail "no join token: ${SUDO:+$SUDO }docker compose --project-directory $DIR exec fleet opence-fleet join-token $NODE"
 	# (the agent connects to the control plane over HTTPS, as every node's
 	# does: the certificate first)
-	say "Waiting for https://$DOMAIN to answer (the certificate, the proxy)..."
+	say "Waiting for $URL to answer (the certificate, the proxy)..."
 	up=""
 	i=0
 	while [ $i -lt 60 ]; do
-		if fetch "https://$DOMAIN/healthz" "$tmp/healthz" 2>/dev/null; then
+		if fetch "$URL/healthz" "$tmp/healthz" 2>/dev/null; then
 			up=1
 			break
 		fi
 		i=$((i + 1))
 		sleep 3
 	done
-	node_line="curl -fsSL https://$DOMAIN/agent.sh | sudo sh -s -- --token $token --name $NODE"
-	if [ -n "$up" ] && fetch "https://$DOMAIN/agent.sh" "$tmp/agent.sh"; then
+	node_line="curl -fsSL $URL/agent.sh | sudo sh -s -- --token $token --name $NODE"
+	if [ -n "$up" ] && fetch "$URL/agent.sh" "$tmp/agent.sh"; then
 		if $SUDO sh "$tmp/agent.sh" --token "$token" --name "$NODE" ${YES:+--yes}; then
 			node_line=""
 			enrolled=1
@@ -413,7 +460,7 @@ if [ "$SERVERS" = yes ] && [ -z "$enrolled" ]; then
 			say "The node was not enrolled (above: why)."
 		fi
 	else
-		say "https://$DOMAIN does not answer yet."
+		say "$URL does not answer yet."
 	fi
 fi
 
@@ -430,8 +477,11 @@ if [ "$PROXY" = external ]; then
 	say "    }"
 	say ""
 	say "(nginx's, and the headers the control plane needs: $DIR/reverse-proxy.txt). Then open the link."
+elif [ "$PROXY" = insecure ]; then
+	say "The OpenCE fleet runs at $URL: plain HTTP, NOT ENCRYPTED (passwords and tokens are"
+	say "readable on the network). Let port $PORT/tcp in through this machine's firewall."
 else
-	say "The OpenCE fleet runs at https://$DOMAIN"
+	say "The OpenCE fleet runs at $URL"
 fi
 if [ -n "$link" ]; then
 	say ""
@@ -443,11 +493,11 @@ if [ -n "$link" ]; then
 		say "Caddy may take a minute to get the certificate; reload if the page does not open yet."
 	fi
 else
-	say "It is set up already: sign in at https://$DOMAIN/"
+	say "It is set up already: sign in at $URL/"
 fi
 if [ -n "$node_line" ]; then
 	say ""
-	say "To make this machine a node once https://$DOMAIN answers (within the hour; else the"
+	say "To make this machine a node once $URL answers (within the hour; else the"
 	say "Nodes page's Add a node makes another token):"
 	say ""
 	say "    $node_line"

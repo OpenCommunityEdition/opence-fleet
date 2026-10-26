@@ -233,7 +233,11 @@ func serve(args []string) error {
 	fleet := core.New(s, key, c, log, l)
 	fleet.Masters, fleet.HTTP = masters, client
 	accounts := auth.New(s, c.SessionHours)
-	clients := &httpx.Clients{Proxies: c.TrustedProxies}
+	clients := &httpx.Clients{Proxies: c.TrustedProxies, Insecure: c.InsecureHTTP}
+	if c.InsecureHTTP {
+		log.Warn("FLEET_INSECURE_HTTP: sign-ins, changes and agents are taken over plain HTTP from anywhere; " +
+			"passwords, session cookies and node tokens cross the network unencrypted")
+	}
 	server := web.New(fleet, accounts, clients, log, version)
 	server.AgentScript = opencefleet.AgentScript
 	web.Static = static.Files

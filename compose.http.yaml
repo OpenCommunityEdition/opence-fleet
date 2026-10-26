@@ -1,0 +1,21 @@
+# With compose.yaml, for a fleet with no HTTPS at all: install.sh --proxy
+# insecure names both files in .env (COMPOSE_FILE=compose.yaml:compose.http.yaml).
+#
+# INSECURE. The control plane's port is published on every address of this
+# machine and takes sign-ins, changes and the agents' connections over plain
+# HTTP (FLEET_INSECURE_HTTP): passwords, session cookies and node tokens
+# cross the network unencrypted, readable and replayable by anyone on the
+# way. For a trusted LAN or a test; put HTTPS in front for anything else
+# (install.sh --proxy bundled or external). Nothing is in front of the
+# fleet here, so no one's X-Forwarded-* headers are believed.
+services:
+  fleet:
+    environment:
+      FLEET_INSECURE_HTTP: "true"
+      FLEET_TRUSTED_PROXIES: ""
+    ports:
+      - "${FLEET_PORT:-80}:8070"
+
+  caddy:
+    # (off: a profile nothing turns on)
+    profiles: [bundled-caddy]

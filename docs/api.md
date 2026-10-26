@@ -13,8 +13,8 @@ functions as the pages, with the same rules, roles and audit; the code is
   token in `X-CSRF-Token`, and an `Origin` of the fleet's own.
 
 Over plain HTTP the control plane answers loopback alone (`tls_required`
-otherwise); behind a proxy, `FLEET_TRUSTED_PROXIES` says whose
-`X-Forwarded-Proto` is believed.
+otherwise), unless `FLEET_INSECURE_HTTP` is on; behind a proxy,
+`FLEET_TRUSTED_PROXIES` says whose `X-Forwarded-Proto` is believed.
 
 ## Roles
 
