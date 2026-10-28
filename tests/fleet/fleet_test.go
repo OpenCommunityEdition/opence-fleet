@@ -397,14 +397,16 @@ func TestFleet(t *testing.T) {
 		if l := h.fleet.Live.Instance(created[0]); *l.Exit != 3 || !strings.Contains(l.Reason, "configuration") {
 			t.Fatalf("%+v", l)
 		}
-		open, _ := h.fleet.Store.ListOpenAlerts(ctx)
-		found := false
-		for _, a := range open {
-			found = found || (a.Rule == "instance_blocked" && a.Target == created[0])
-		}
-		if !found {
-			t.Fatal("no alert")
-		}
+		// (the live state changes before the report's alert is kept)
+		h.until("the alert", 5*time.Second, func() bool {
+			open, _ := h.fleet.Store.ListOpenAlerts(ctx)
+			for _, a := range open {
+				if a.Rule == "instance_blocked" && a.Target == created[0] {
+					return true
+				}
+			}
+			return false
+		})
 		if err := h.fleet.DeleteInstance(ctx, "user:paul", created[0]); err != nil {
 			t.Fatal(err)
 		}
