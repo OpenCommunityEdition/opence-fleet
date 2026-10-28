@@ -24,6 +24,9 @@ type setting struct {
 }
 
 // the server's own settings (docs/dedicated_server.md), beside the table's
+// (a game setting the fleet manages, the Safety group's say, is the table's
+// alone: listed twice, config.toml would have its key twice, which TOML
+// refuses at the next start)
 var own = []spec.Setting{
 	{Name: "server.rotation", Type: "string", Default: "bloodgulch:ctf, sidewinder:team_slayer, prisoner:slayer", Env: "HALO_SERVER_ROTATION"},
 	{Name: "server.web_port", Type: "integer", Default: int64(8080), Env: "HALO_SERVER_WEB_PORT"},
@@ -40,10 +43,6 @@ var own = []spec.Setting{
 	{Name: "server.metrics", Type: "boolean", Default: true, Env: "HALO_SERVER_METRICS", Live: true},
 	{Name: "server.instance", Type: "string", Default: "", Env: "HALO_SERVER_INSTANCE"},
 	{Name: "server.region", Type: "string", Default: "", Env: "HALO_SERVER_REGION", Live: true},
-	{Name: "server.chat_filter", Type: "string", Default: "off", Env: "HALO_SERVER_CHAT_FILTER", Live: true, Choices: []string{"off", "censor", "block"}},
-	{Name: "server.chat_filter_slurs", Type: "string", Default: "mild", Env: "HALO_SERVER_CHAT_FILTER_SLURS", Live: true, Choices: []string{"off", "severe", "strong", "mild"}},
-	{Name: "server.chat_filter_swearing", Type: "string", Default: "off", Env: "HALO_SERVER_CHAT_FILTER_SWEARING", Live: true, Choices: []string{"off", "severe", "strong", "mild"}},
-	{Name: "server.chat_filter_insults", Type: "string", Default: "off", Env: "HALO_SERVER_CHAT_FILTER_INSULTS", Live: true, Choices: []string{"off", "severe", "strong", "mild"}},
 	{Name: "server.console", Type: "boolean", Default: true, Env: "HALO_SERVER_CONSOLE"},
 	{Name: "server.console_exit_on_eof", Type: "boolean", Default: false, Env: "HALO_SERVER_CONSOLE_EXIT_ON_EOF"},
 	{Name: "server.init_file", Type: "string", Default: "init.txt", Env: "HALO_SERVER_INIT_FILE"},
@@ -122,7 +121,12 @@ func normalize(s spec.Setting, value any) (any, error) {
 // loadSettings reads config.toml and the environment (which wins, and pins).
 func loadSettings() (*settings, error) {
 	st := &settings{path: configPath()}
-	all := append(append([]spec.Setting(nil), spec.Settings...), own...)
+	all := append([]spec.Setting(nil), spec.Settings...)
+	for _, s := range own {
+		if _, managed := spec.Lookup(s.Name); !managed {
+			all = append(all, s)
+		}
+	}
 	var file map[string]map[string]any
 	data, err := os.ReadFile(st.path)
 	if err == nil {

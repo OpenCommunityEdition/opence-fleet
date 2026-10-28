@@ -106,6 +106,16 @@ func TestNormalize(t *testing.T) {
 		{"server.motd", "tab\there", nil, "server.motd takes printable ASCII"},
 		{"network.voice_proximity", "12.5", 12.5, ""},
 		{"server.web_port", "8080", nil, "server.web_port is not a setting a profile sets"},
+		// (the Safety group's VPN policy and its linked Discord accounts)
+		{"server.vpn_policy", "Block", "block", ""},
+		{"server.vpn_policy", "deny", nil, "server.vpn_policy is one of off|link|block"},
+		{"server.vpn_fail", "closed", "closed", ""},
+		{"server.vpn_fail", "shut", nil, "server.vpn_fail is one of open|closed"},
+		{"server.vpn_list", "/srv/netlist.bin", "/srv/netlist.bin", ""},
+		{"server.vpn_check_lan", "yes", true, ""},
+		{"server.link_min_age_days", "0", int64(0), ""},
+		{"server.link_min_age_days", "3651", nil, "server.link_min_age_days takes a whole number from 0 to 3650"},
+		{"server.link_one_seat", "false", false, ""},
 	} {
 		got, err := Normalize(c.name, c.value)
 		if c.err != "" {
@@ -168,5 +178,23 @@ func TestNames(t *testing.T) {
 	img.Digest = "sha256:cd"
 	if img.Pull() != "localhost:5000/opence-server@sha256:cd" {
 		t.Fatal(img.Pull())
+	}
+}
+
+// The VPN policy's settings are the Safety group's, live but for the list
+// file, which the server reads at its start and by sv_reload alone.
+func TestVPNSettings(t *testing.T) {
+	defaults := map[string]any{"server.vpn_policy": "link", "server.vpn_fail": "open", "server.vpn_list": "",
+		"server.vpn_check_lan": false, "server.link_min_age_days": 365, "server.link_one_seat": true}
+	for name, value := range defaults {
+		s, ok := Lookup(name)
+		if !ok {
+			t.Errorf("%s is not in the table", name)
+			continue
+		}
+		if s.Group != "Safety" || s.Default != value || s.Live != (name != "server.vpn_list") || s.Comment == "" ||
+			s.Env != "HALO_"+strings.ToUpper(strings.ReplaceAll(name, ".", "_")) {
+			t.Errorf("%+v", s)
+		}
 	}
 }
