@@ -413,6 +413,7 @@ templ PlayersTable(p view.Page, slug string, players []serverapi.Player, problem
 									if pl.Muted {
 										<span class="text-xs text-warn">muted</span>
 									}
+									@DiscordBadge(p, pl)
 								</td>
 								<td class={ view.Td }>{ teamName(pl.Team) }</td>
 								<td class={ view.Td + " text-right tabular-nums" }>{ view.Itoa(pl.Score) }</td>
@@ -659,7 +660,7 @@ templ ServerBans(p view.Page, v ServerView, bans []serverapi.Ban, problem string
 			} else {
 				<div class="overflow-x-auto border-t border-line">
 					<table class="w-full text-sm">
-						<thead><tr><th class={ view.Th }>#</th><th class={ view.Th }>When</th><th class={ view.Th }>Players</th><th class={ view.Th }>Address</th><th class={ view.Th }>Reason</th><th class={ view.Th }>Until</th><th class={ view.Th }></th></tr></thead>
+						<thead><tr><th class={ view.Th }>#</th><th class={ view.Th }>When</th><th class={ view.Th }>Players</th><th class={ view.Th }>Address</th><th class={ view.Th }>Discord id</th><th class={ view.Th }>Reason</th><th class={ view.Th }>Until</th><th class={ view.Th }></th></tr></thead>
 						<tbody>
 							for _, b := range bans {
 								<tr class={ view.Tr }>
@@ -667,6 +668,12 @@ templ ServerBans(p view.Page, v ServerView, bans []serverapi.Ban, problem string
 									<td class={ view.Td + " whitespace-nowrap text-muted" }>{ b.When }</td>
 									<td class={ view.Td }>{ b.Players }</td>
 									<td class={ view.Td + " text-xs text-muted" }>{ b.IP } { view.Short(b.HWID, 12) }</td>
+									<td class={ view.Td + " text-xs text-muted tabular-nums" }>
+										{ b.DiscordID }
+										if b.DiscordID != "" && !b.DiscordVerified {
+											<span class="text-faint" title="What the machine said of itself: never matched">(self-reported)</span>
+										}
+									</td>
 									<td class={ view.Td }>{ b.Reason }</td>
 									<td class={ view.Td + " whitespace-nowrap text-muted" }>{ view.UnixPtr(b.Until, p.Zone) }</td>
 									<td class={ view.Td + " text-right" }>

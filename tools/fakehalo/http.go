@@ -361,8 +361,15 @@ func (g *game) api(w http.ResponseWriter, r *http.Request, s *session, path stri
 		}
 		b := ban{When: time.Now().UTC().Format("2006-01-02 15:04:05"), IP: text(body, "ip"), HWID: text(body, "hwid"),
 			Players: text(body, "names"), Reason: text(body, "reason")}
-		if b.IP == "" && b.HWID == "" {
-			fail(w, 400, "schema", "ip or hwid is needed", nil)
+		if id := text(body, "discord_id"); id != "" && linkCapable() {
+			if !discordDigits(id) {
+				fail(w, 400, "schema", "discord_id is a Discord account's id: up to 20 digits", nil)
+				return
+			}
+			b.DiscordID, b.DiscordVerified = id, true
+		}
+		if b.IP == "" && b.HWID == "" && b.DiscordID == "" {
+			fail(w, 400, "schema", "ip, hwid or discord_id is needed", nil)
 			return
 		}
 		if d, ok := duration(text(body, "duration")); ok {

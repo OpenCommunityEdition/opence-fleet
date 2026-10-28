@@ -151,7 +151,8 @@ func (g *game) commandCode(line, role, origin string) ([]string, bool, *commandE
 			g.emit("moderation", "unmute", map[string]any{"name": p.Name, "by": origin})
 			return []string{p.Name + " unmuted"}, true, nil
 		}
-		b := ban{When: time.Now().UTC().Format("2006-01-02 15:04:05"), IP: p.Address, HWID: p.HWID, Players: p.Name}
+		b := ban{When: time.Now().UTC().Format("2006-01-02 15:04:05"), IP: p.Address, HWID: p.HWID, Players: p.Name,
+			DiscordID: p.DiscordID, DiscordName: p.DiscordName, DiscordVerified: p.DiscordVerified}
 		if len(w) > 2 {
 			if d, ok := duration(w[2]); ok {
 				until := time.Now().Add(d).Unix()
@@ -171,10 +172,15 @@ func (g *game) commandCode(line, role, origin string) ([]string, bool, *commandE
 		return []string{p.Name + " banned"}, true, nil
 	case "sv_ban_address":
 		if len(w) < 2 {
-			return []string{"sv_ban_address <address|hardware id> [<duration>] [<reason>]"}, false, nil
+			return []string{"sv_ban_address <address|hardware id|discord:<id>> [<duration>] [<reason>]"}, false, nil
 		}
 		b := ban{When: time.Now().UTC().Format("2006-01-02 15:04:05")}
-		if strings.Count(w[1], ".") == 3 || strings.Contains(w[1], ":") {
+		if id, ok := strings.CutPrefix(w[1], "discord:"); ok && linkCapable() {
+			if !discordDigits(id) {
+				return []string{"a Discord account's id is up to 20 digits"}, false, nil
+			}
+			b.DiscordID, b.DiscordVerified = id, true
+		} else if strings.Count(w[1], ".") == 3 || strings.Contains(w[1], ":") {
 			b.IP = w[1]
 		} else {
 			b.HWID = w[1]
@@ -322,7 +328,8 @@ func (g *game) addBan(b ban, by string) int {
 	g.bans = append(g.bans, b)
 	g.writeBans()
 	for _, p := range append([]*player(nil), g.players...) {
-		if (b.IP != "" && p.Address == b.IP) || (b.HWID != "" && p.HWID == b.HWID) {
+		if (b.IP != "" && p.Address == b.IP) || (b.HWID != "" && p.HWID == b.HWID) ||
+			(b.DiscordVerified && p.DiscordVerified && b.DiscordID == p.DiscordID) {
 			g.leave(p, "banned")
 		}
 	}
@@ -366,6 +373,20 @@ func (g *game) findPlayer(text string) *player {
 		}
 	}
 	return found
+}
+
+// discordDigits tells whether a text is a Discord account's id: up to 20
+// digits.
+func discordDigits(text string) bool {
+	if text == "" || len(text) > 20 {
+		return false
+	}
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func duration(text string) (time.Duration, bool) {

@@ -1,6 +1,6 @@
 -- name: CreateBan :one
-INSERT INTO fleet_bans (hwid, address, names, reason, until, created_by, created_at, source_slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
+INSERT INTO fleet_bans (hwid, address, discord_id, names, reason, until, created_by, created_at, source_slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id;
 
 -- name: GetBan :one
 SELECT * FROM fleet_bans WHERE id = ?;

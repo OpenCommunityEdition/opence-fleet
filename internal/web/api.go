@@ -354,7 +354,7 @@ func (s *Server) apiEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	events := []map[string]any{}
-	admin := principal(r).Can(auth.Admin)
+	admin, moderator := principal(r).Can(auth.Admin), principal(r).Can(auth.Moderator)
 	for _, e := range rows {
 		var data map[string]any
 		json.Unmarshal([]byte(e.Data), &data)
@@ -364,6 +364,11 @@ func (s *Server) apiEvents(w http.ResponseWriter, r *http.Request) {
 			if e.Type == "chat" {
 				continue
 			}
+		}
+		// (a player's Discord account, as the pages show it: to moderators)
+		if !moderator {
+			delete(data, "discord_id")
+			delete(data, "discord_name")
 		}
 		events = append(events, map[string]any{"id": e.ID, "time": e.Time, "type": e.Type, "data": data})
 	}
@@ -691,19 +696,20 @@ func (s *Server) apiBans(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) apiBan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Address  string `json:"address"`
-		HWID     string `json:"hwid"`
-		Names    string `json:"names"`
-		Reason   string `json:"reason"`
-		Duration string `json:"duration"`
+		Address   string `json:"address"`
+		HWID      string `json:"hwid"`
+		DiscordID string `json:"discord_id"`
+		Names     string `json:"names"`
+		Reason    string `json:"reason"`
+		Duration  string `json:"duration"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		s.apiError(w, err)
 		return
 	}
 	duration, _ := time.ParseDuration(in.Duration)
-	id, err := s.Fleet.CreateBan(r.Context(), s.actor(r), core.BanInput{Address: in.Address, HWID: in.HWID, Names: in.Names,
-		Reason: in.Reason, Duration: duration, Source: "api"})
+	id, err := s.Fleet.CreateBan(r.Context(), s.actor(r), core.BanInput{Address: in.Address, HWID: in.HWID, DiscordID: in.DiscordID,
+		Names: in.Names, Reason: in.Reason, Duration: duration, Source: "api"})
 	if err != nil {
 		s.apiError(w, err)
 		return
@@ -824,8 +830,8 @@ func (s *Server) apiImport(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		if _, err := s.Fleet.CreateBan(ctx, actor, core.BanInput{Address: b.Address, HWID: b.Hwid, Names: b.Names, Reason: b.Reason,
-			Duration: d, Source: "import"}); err == nil {
+		if _, err := s.Fleet.CreateBan(ctx, actor, core.BanInput{Address: b.Address, HWID: b.Hwid, DiscordID: b.DiscordID,
+			Names: b.Names, Reason: b.Reason, Duration: d, Source: "import"}); err == nil {
 			done = append(done, "a ban")
 		}
 	}

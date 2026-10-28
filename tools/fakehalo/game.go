@@ -54,8 +54,12 @@ func printLine(level, cat, text string) {
 type player struct {
 	Slot, Team, Score, Kills, Deaths, Machine int
 	Name, Address, HWID                       string
-	Joined                                    int64
-	Muted                                     bool
+	// its Discord account: a verified one's (a pass the server checked), or
+	// what the machine says of itself
+	DiscordID, DiscordName string
+	DiscordVerified        bool
+	Joined                 int64
+	Muted                  bool
 }
 
 type entry struct {
@@ -64,7 +68,11 @@ type entry struct {
 
 type ban struct {
 	When, IP, HWID, Players, Reason string
-	Until                           *int64
+	// a Discord account's id: matched when verified (written bare), never
+	// when self-reported (written with "(self-reported)" after it)
+	DiscordID, DiscordName string
+	DiscordVerified        bool
+	Until                  *int64
 }
 
 type event struct {
@@ -315,6 +323,9 @@ func (g *game) playerJSON(p *player, role string) map[string]any {
 		"deaths": p.Deaths, "assists": 0, "ping": 40 + p.Slot, "machine": p.Machine, "joined": p.Joined, "muted": p.Muted}
 	if g.addresses(role) {
 		out["address"], out["hwid"] = p.Address, p.HWID
+		if linkCapable() {
+			out["discord_id"], out["discord_name"], out["discord_verified"] = p.DiscordID, p.DiscordName, p.DiscordVerified
+		}
 	}
 	if options.capable {
 		out["client"] = clientOf(p.Machine)
@@ -415,8 +426,25 @@ func capabilities() []string {
 	if options.capable {
 		list = append(list, "owner_web", "ban_address", "stop", "event_addresses", "identity")
 	}
+	if linkCapable() {
+		list = append(list, "link")
+	}
 	return list
 }
+
+// linkCapable tells whether the fake has verified Discord accounts (the
+// link capability: discord_* in players, bans by discord_id).
+func linkCapable() bool { return options.capable && options.vpn }
+
+// takesPasses tells whether the server checks players' passes: from the
+// masters it publishes to alone, so with a publisher key and
+// server.master_publish (a server that publishes nowhere takes none).
+func (g *game) takesPasses() bool {
+	return linkCapable() && os.Getenv("HALO_SERVER_PUBLISHER_KEY") != "" && g.st.bool("server.master_publish")
+}
+
+// discordID is a scripted machine's Discord account's id (18 digits).
+func discordID(machine int) string { return strconv.Itoa(300000000000000000 + machine) }
 
 func (g *game) stalled() bool {
 	return options.stall > 0 && time.Since(g.started) > options.stall
@@ -715,22 +743,31 @@ func (g *game) join() {
 		}
 	}
 	g.machines++
-	address := fmt.Sprintf("203.0.113.%d", 10+g.machines%200)
-	hwid := fmt.Sprintf("%016x", 0xfeed0000+g.machines)
+	m := g.machines
+	address := fmt.Sprintf("203.0.113.%d", 10+m%200)
+	hwid := fmt.Sprintf("%016x", 0xfeed0000+m)
+	name := names[(m-1)%len(names)]
+	// the script's Discord accounts, a machine in four each: none; a pass
+	// (verified where the server takes passes); the machine's own word; a
+	// pass again
+	p := &player{Slot: slot, Name: name, Machine: m, Address: address, HWID: hwid, Joined: time.Now().Unix()}
+	if linkCapable() && m%4 != 1 {
+		p.DiscordID, p.DiscordName = discordID(m), strings.ToLower(name)
+		p.DiscordVerified = m%2 == 0 && g.takesPasses()
+	}
 	for _, b := range g.bans {
-		if (b.IP != "" && b.IP == address) || (b.HWID != "" && b.HWID == hwid) {
+		if (b.IP != "" && b.IP == address) || (b.HWID != "" && b.HWID == hwid) ||
+			(b.DiscordID != "" && b.DiscordVerified && p.DiscordVerified && b.DiscordID == p.DiscordID) {
 			if b.Until == nil || *b.Until > time.Now().Unix() {
 				logLine("info", "net", "refusing a machine: banned (bans.txt)")
 				return
 			}
 		}
 	}
-	team := -1
+	p.Team = -1
 	if g.teams() {
-		team = slot % 2
+		p.Team = slot % 2
 	}
-	p := &player{Slot: slot, Name: names[(g.machines-1)%len(names)], Team: team, Machine: g.machines, Address: address,
-		HWID: hwid, Joined: time.Now().Unix()}
 	g.players = append(g.players, p)
 	fields := map[string]any{"slot": p.Slot, "name": p.Name, "team": p.Team, "machine": p.Machine}
 	g.emitPlayer("player_joined", fields, p)
@@ -745,7 +782,11 @@ func (g *game) emitPlayer(name string, fields map[string]any, p *player) {
 	for k, v := range fields {
 		data[k] = v
 	}
-	e := event{Seq: g.seq, Group: "player", Data: data, Private: map[string]any{"address": p.Address, "hwid": p.HWID}}
+	private := map[string]any{"address": p.Address, "hwid": p.HWID}
+	if name == "player_joined" && linkCapable() {
+		private["discord_id"], private["discord_name"], private["discord_verified"] = p.DiscordID, p.DiscordName, p.DiscordVerified
+	}
+	e := event{Seq: g.seq, Group: "player", Data: data, Private: private}
 	g.events = append(g.events, e)
 	for _, r := range g.subscriberList() {
 		go r.event("player", g.view(e, r.role))
@@ -834,6 +875,11 @@ func (g *game) readBans() {
 				b.Reason = v
 			case "players":
 				b.Players = v
+			case "discord_id":
+				id, self := strings.CutSuffix(v, " (self-reported)")
+				b.DiscordID, b.DiscordVerified = id, !self && id != ""
+			case "discord_username":
+				b.DiscordName = strings.TrimSuffix(v, " (self-reported)")
 			}
 		}
 		g.bans = append(g.bans, b)
@@ -856,8 +902,12 @@ func banLine(b ban) string {
 		}
 		return s
 	}
-	line := fmt.Sprintf("%s\tip=%s\thwid=%s\tdiscord_username=none\tdiscord_id=none\tplayers=%s\treason=%s", b.When,
-		none(b.IP), none(b.HWID), none(b.Players), none(b.Reason))
+	discordName, discordID := none(b.DiscordName), none(b.DiscordID)
+	if b.DiscordID != "" && !b.DiscordVerified {
+		discordName, discordID = discordName+" (self-reported)", discordID+" (self-reported)"
+	}
+	line := fmt.Sprintf("%s\tip=%s\thwid=%s\tdiscord_username=%s\tdiscord_id=%s\tplayers=%s\treason=%s", b.When,
+		none(b.IP), none(b.HWID), discordName, discordID, none(b.Players), none(b.Reason))
 	if b.Until != nil {
 		line += "\tuntil=" + strconv.FormatInt(*b.Until, 10)
 	}
@@ -872,8 +922,12 @@ func (g *game) bansJSON() []map[string]any {
 		if b.Until != nil {
 			until = *b.Until
 		}
-		out = append(out, map[string]any{"n": i, "when": b.When, "ip": b.IP, "hwid": b.HWID, "players": b.Players,
-			"reason": b.Reason, "until": until})
+		line := map[string]any{"n": i, "when": b.When, "ip": b.IP, "hwid": b.HWID, "players": b.Players,
+			"reason": b.Reason, "until": until}
+		if linkCapable() {
+			line["discord_id"], line["discord_verified"] = b.DiscordID, b.DiscordVerified
+		}
+		out = append(out, line)
 	}
 	return out
 }

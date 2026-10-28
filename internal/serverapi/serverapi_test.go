@@ -198,7 +198,7 @@ func TestFakehalo(t *testing.T) {
 		if s.Region != "eu" || s.WebPort == 0 || s.TunnelPort == 0 || s.PID == 0 || s.Drain != nil {
 			t.Errorf("identity: region %q, web %d, tunnel %d, pid %d, drain %v", s.Region, s.WebPort, s.TunnelPort, s.PID, s.Drain)
 		}
-		if !s.Has("identity") || !s.Has("events") || s.Has("teleport") {
+		if !s.Has("identity") || !s.Has("events") || !s.Has("link") || s.Has("teleport") {
 			t.Errorf("capabilities %v", s.Capabilities)
 		}
 		if s.Rotation.Count != 3 || s.Rotation.Next == nil || s.Rotation.Next.Map == "" {
@@ -235,6 +235,26 @@ func TestFakehalo(t *testing.T) {
 		}
 		if len(list) > 0 && list[0].Address == "" {
 			t.Errorf("the owner sees no address: %+v", list[0])
+		}
+		if p.DiscordID != "" || p.DiscordName != "" {
+			t.Errorf("the admin sees a Discord account: %+v", p)
+		}
+		// (the script's second machine says its Discord account: a server that
+		// publishes nowhere takes no pass, so it is the machine's own word)
+		var second *Player
+		for deadline := time.Now().Add(5 * time.Second); second == nil; time.Sleep(50 * time.Millisecond) {
+			list, _ := owner.Players(ctx)
+			for i := range list {
+				if list[i].Machine == 2 {
+					second = &list[i]
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no second machine: %+v", list)
+			}
+		}
+		if second.DiscordID != "300000000000000002" || second.DiscordName == "" || second.DiscordVerified {
+			t.Errorf("the second machine's Discord account: %+v", second)
 		}
 	})
 
@@ -404,6 +424,21 @@ func TestFakehalo(t *testing.T) {
 		}
 		_, err = admin.AddBan(ctx, "", "", "Nobody", "", "")
 		refused(t, err, 400, "schema")
+		// a verified Discord account's ban (the link capability)
+		discord, err := admin.PostBan(ctx, BanRequest{DiscordID: "300000000000000004", Names: "Kat", Reason: "vpn hopping"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bans, _ = admin.Bans(ctx)
+		if discord >= len(bans) || bans[discord].DiscordID != "300000000000000004" || !bans[discord].DiscordVerified ||
+			bans[discord].IP != "" {
+			t.Fatalf("ban %d: %+v", discord, bans)
+		}
+		_, err = admin.PostBan(ctx, BanRequest{DiscordID: "not-digits"})
+		refused(t, err, 400, "schema")
+		if err := admin.DeleteBan(ctx, discord); err != nil {
+			t.Fatal(err)
+		}
 		if err := admin.DeleteBan(ctx, n); err != nil {
 			t.Fatal(err)
 		}

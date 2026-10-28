@@ -83,6 +83,12 @@ func (f *Fleet) Report(node int64, kind string, data []byte) {
 		if before == nil || before.State != r.State {
 			f.onState(node, r, before)
 		}
+		// (a server up whose game now says it has verified Discord accounts:
+		// the bans of one that waited for it)
+		if after := f.Live.Instance(r.Slug); after != nil && after.State == agentproto.Up && after.Has("link") &&
+			(before == nil || before.State != agentproto.Up || !before.Has("link")) {
+			go f.applyWaitingBans(context.Background(), r.Slug)
+		}
 	case agentproto.TStatus:
 		var s agentproto.Status
 		if json.Unmarshal(data, &s) != nil || refuse(s.Slug) {
@@ -246,18 +252,23 @@ type eventFields struct {
 	Players    []map[string]any `json:"players"`
 	Address    string           `json:"address"`
 	HWID       string           `json:"hwid"`
-	Channel    string           `json:"channel"`
-	Text       string           `json:"text"`
-	Machine    int              `json:"machine"`
-	Action     string           `json:"action"`
-	URL        string           `json:"url"`
-	Listed     bool             `json:"listed"`
-	Probe      string           `json:"probe"`
-	Code       any              `json:"code"`
-	Message    string           `json:"message"`
-	Until      *int64           `json:"until"`
-	After      string           `json:"after"`
-	Restart    bool             `json:"restart"`
+	// a player_joined's Discord account, with the addresses (the link
+	// capability): matched for a ban only when verified
+	DiscordID       string `json:"discord_id"`
+	DiscordName     string `json:"discord_name"`
+	DiscordVerified bool   `json:"discord_verified"`
+	Channel         string `json:"channel"`
+	Text            string `json:"text"`
+	Machine         int    `json:"machine"`
+	Action          string `json:"action"`
+	URL             string `json:"url"`
+	Listed          bool   `json:"listed"`
+	Probe           string `json:"probe"`
+	Code            any    `json:"code"`
+	Message         string `json:"message"`
+	Until           *int64 `json:"until"`
+	After           string `json:"after"`
+	Restart         bool   `json:"restart"`
 }
 
 // onEvent is a server's event: kept, made a game's, a sentence of the feed,

@@ -102,10 +102,22 @@ The pages, by what they are for:
 | Library | maps, custom maps and gametype files the nodes sync (uploads are chunked and resumable, checked by SHA-256) |
 | Releases | the server image's builds (`latest` resolved from the registry), local builds, and the release zips of the process runtime |
 | Masters | the master servers, the fleet's publisher keys and what each master says of them |
-| Bans | fleet bans (by address, hardware id or name, with an expiry), imported or applied everywhere |
+| Bans | fleet bans (by address, hardware id or verified Discord account, with an expiry), imported or applied everywhere |
 | Jobs, Schedules | bulk actions and their waves; cron schedules of them (in the fleet's time zone) |
 | Alerts | crashes, crash loops, nodes offline, probes failing, slow frames, a disk filling; Discord and generic webhooks |
 | Audit, Team, Settings | who did what; users, roles (viewer, moderator, admin, owner), invites and API tokens; the fleet's settings |
+
+A player who joins with a pass of a Discord account linked at a master (the
+game's VPN policy lets such a player in over a VPN) is a *verified* account:
+the Players pages mark it, with its name and id for moderators and above. A
+fleet ban of such a player (from its row, or by hand with the account's id,
+up to 20 digits) also bans the account: every server whose game has verified
+accounts (its RCON hello's `link`) keeps out each machine that shows a pass of
+it, from any address, and the fleet bans it on sight. What a machine says of
+its account without a pass is never matched (anyone could say it). A server
+whose game is older takes the address and the hardware id alone; a ban of an
+account alone waits there (*cannot yet* on the Bans page) and is applied once
+its game says it has them.
 
 Everything a page does is also `/api/v1` ([docs/api.md](docs/api.md)), with
 an API token from the Team page, and the command line:

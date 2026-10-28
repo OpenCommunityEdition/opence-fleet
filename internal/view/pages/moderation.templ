@@ -60,7 +60,10 @@ templ PlayersFleetTable(p view.Page, players []FleetPlayer, search string, probl
 				<tbody>
 					for _, pl := range players {
 						<tr class={ view.Tr }>
-							<td class={ view.Td + " font-medium" }>{ pl.Name }</td>
+							<td class={ view.Td + " font-medium" }>
+								{ pl.Name }
+								@DiscordBadge(p, pl.Player)
+							</td>
 							<td class={ view.Td }><a class="hover:text-accent" href={ templ.SafeURL("/servers/" + pl.Slug + "/players") }>{ pl.Server }</a></td>
 							<td class={ view.Td + " text-muted" }>{ teamName(pl.Team) }</td>
 							<td class={ view.Td + " text-right tabular-nums" }>{ view.Itoa(pl.Score) }</td>
@@ -93,7 +96,9 @@ templ PlayersFleetTable(p view.Page, players []FleetPlayer, search string, probl
 // BanLine is a fleet ban with where it holds.
 type BanLine struct {
 	db.FleetBan
-	Held, Pending, Failed int
+	// unsupported: a Discord account's ban on a server whose game has no
+	// verified accounts (yet)
+	Held, Pending, Failed, Unsupported int
 }
 
 // Bans is the fleet's ban list.
@@ -112,13 +117,14 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 					<p class="px-4 py-8 text-center text-sm text-muted">No ban. A ban from a player's row is a fleet ban; so is one made on a server's own console, which the fleet imports.</p>
 				} else {
 					<table class="w-full text-sm">
-						<thead><tr><th class={ view.Th }>#</th><th class={ view.Th }>Names</th><th class={ view.Th }>Address · hardware id</th><th class={ view.Th }>Reason</th><th class={ view.Th }>Until</th><th class={ view.Th }>By</th><th class={ view.Th }>Holds</th><th class={ view.Th }></th></tr></thead>
+						<thead><tr><th class={ view.Th }>#</th><th class={ view.Th }>Names</th><th class={ view.Th }>Address · hardware id</th><th class={ view.Th }>Discord id</th><th class={ view.Th }>Reason</th><th class={ view.Th }>Until</th><th class={ view.Th }>By</th><th class={ view.Th }>Holds</th><th class={ view.Th }></th></tr></thead>
 						<tbody>
 							for _, b := range bans {
 								<tr class={ view.Tr, templ.KV("opacity-50", b.RemovedAt != nil) }>
 									<td class={ view.Td + " text-muted tabular-nums" }>{ view.I64(b.ID) }</td>
 									<td class={ view.Td + " font-medium" }>{ firstOf(b.Names, "—") }</td>
 									<td class={ view.Td + " text-xs text-muted" }>{ b.Address } <span class="text-faint">{ view.Short(b.Hwid, 12) }</span></td>
+									<td class={ view.Td + " text-xs text-muted tabular-nums" }>{ b.DiscordID }</td>
 									<td class={ view.Td }>{ b.Reason }</td>
 									<td class={ view.Td + " whitespace-nowrap text-muted" }>
 										if b.Until == nil {
@@ -135,6 +141,9 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 										}
 										if b.Failed > 0 {
 											· <span class="text-bad">{ view.Itoa(b.Failed) } failed</span>
+										}
+										if b.Unsupported > 0 {
+											· <span class="text-warn" title="A Discord account's ban: these servers' game has no verified accounts yet (the link capability); each takes it once it has">{ view.Itoa(b.Unsupported) } { "cannot yet" }</span>
 										}
 									</td>
 									<td class={ view.Td + " text-right" }>
@@ -153,12 +162,13 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 			</div>
 			if p.Can("admin") {
 				<div class="grid gap-4 lg:grid-cols-2">
-					@parts.Card("Ban by hand", "An address or a hardware id, kept off every server.") {
+					@parts.Card("Ban by hand", "An address, a hardware id or a verified Discord account, kept off every server.") {
 						@parts.Pad() {
 							<form method="post" action="/bans" class="grid gap-3 sm:grid-cols-2">
 								@parts.CSRF(p.CSRF)
 								<input name="address" class={ view.Input } placeholder="203.0.113.5"/>
 								<input name="hwid" class={ view.Input } placeholder="a hardware id"/>
+								<input name="discord_id" class={ view.Input + " sm:col-span-2" } inputmode="numeric" pattern="[0-9]{1,20}" maxlength="20" placeholder="a Discord account's id (digits: a player linked on a master, as the server verified it)"/>
 								<input name="names" class={ view.Input } placeholder="the names seen"/>
 								<select name="duration" class={ view.Select }>
 									<option value="">{ "for ever" }</option>
@@ -171,7 +181,7 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 							</form>
 						}
 					}
-					@parts.Card("Import a bans.txt", "Each line's address and hardware id become fleet bans.") {
+					@parts.Card("Import a bans.txt", "Each line's address, hardware id and verified Discord account become fleet bans.") {
 						@parts.Pad() {
 							<form method="post" action="/bans/import" class="space-y-3">
 								@parts.CSRF(p.CSRF)
@@ -183,6 +193,26 @@ templ Bans(p view.Page, bans []BanLine, all bool) {
 				</div>
 			}
 		}
+	}
+}
+
+// DiscordBadge marks a player whose machine showed a pass of a Discord
+// account linked at a master (a verified account, which a ban by its id
+// keeps out from any address): its name for moderators and above, and its
+// id beside it. What a machine says of its account itself is not shown:
+// anyone could say it.
+templ DiscordBadge(p view.Page, pl serverapi.Player) {
+	if pl.DiscordVerified {
+		<span class="ml-1 inline-flex flex-wrap items-center gap-1 align-middle font-normal whitespace-nowrap" title="A Discord account linked at a master, verified by the server">
+			if p.Can("moderator") && pl.DiscordName != "" {
+				@parts.Badge(view.OK, "verified · "+pl.DiscordName)
+			} else {
+				@parts.Badge(view.OK, "verified")
+			}
+			if p.Can("moderator") && pl.DiscordID != "" {
+				<span class="text-xs text-faint tabular-nums select-all">{ pl.DiscordID }</span>
+			}
+		</span>
 	}
 }
 

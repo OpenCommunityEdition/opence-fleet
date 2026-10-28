@@ -130,6 +130,11 @@ func (s *Server) serverPage(w http.ResponseWriter, r *http.Request) {
 		} else if err := s.Fleet.Call(ctx, slug, http.MethodGet, "/api/bans", nil, &answer); err != nil {
 			problem = "The server did not answer: " + err.Error()
 		}
+		for i := range answer.Bans {
+			if answer.Bans[i].DiscordID == "none" {
+				answer.Bans[i].DiscordID = ""
+			}
+		}
 		states, _ := s.Fleet.Store.ListBanStates(ctx)
 		var mine []db.InstanceBanState
 		for _, st := range states {

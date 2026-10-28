@@ -57,6 +57,7 @@ type FleetBan struct {
 	SourceSlug string
 	RemovedAt  *int64
 	RemovedBy  string
+	DiscordID  string
 }
 
 type Game struct {

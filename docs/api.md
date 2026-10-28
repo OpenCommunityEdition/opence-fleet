@@ -87,7 +87,7 @@ reach a server.
 | `POST /api/v1/keys/{id}/sign` | owner | sign a text with a key (the master's proof of key) |
 | `GET /api/v1/keys/{id}/me` | admin | what each master says of a key (`GET /v1/me`, signed) |
 | `GET /api/v1/bans` | moderator | fleet bans |
-| `POST /api/v1/bans` | admin | `{"address": "", "hwid": "", "names": "", "reason": "", "duration": "24h"}` (no duration: for ever); applied on every server |
+| `POST /api/v1/bans` | admin | `{"address": "", "hwid": "", "discord_id": "", "names": "", "reason": "", "duration": "24h"}` (an address, a hardware id or a verified Discord account's id, up to 20 digits, or more than one; no duration: for ever); applied on every server (a Discord account's on those whose game has the `link` capability) |
 | `DELETE /api/v1/bans/{id}` | admin | lift a fleet ban everywhere |
 | `GET /api/v1/schedules`, `GET /api/v1/alerts` | viewer | schedules; open and recent alerts |
 | `GET /api/v1/audit` | admin | the audit log, newest first, 500 at a time (`?actor=&action=&target=&before=`; the answer's `before` pages on) |

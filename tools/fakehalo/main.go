@@ -43,6 +43,7 @@ var options struct {
 	noReady    bool
 	slowRCON   bool
 	capable    bool
+	vpn        bool
 }
 
 func main() {
@@ -66,6 +67,7 @@ func run(args []string) int {
 	set.BoolVar(&options.noReady, "no-ready", false, "never print the ready line")
 	set.BoolVar(&options.slowRCON, "slow-rcon", false, "read the RCON's clients slowly")
 	set.BoolVar(&options.capable, "capabilities", true, "the game's fleet changes (owner over the web, POST /api/bans, sv_stop, addresses in events, identity)")
+	set.BoolVar(&options.vpn, "vpn", true, "the VPN policy and verified Discord accounts (the vpn and link capabilities), with --capabilities")
 	if err := set.Parse(args); err != nil {
 		return 3
 	}
@@ -77,6 +79,9 @@ func run(args []string) int {
 	}
 	if os.Getenv("FAKEHALO_OLD") != "" {
 		options.capable = false
+	}
+	if os.Getenv("FAKEHALO_NO_VPN") != "" {
+		options.vpn = false
 	}
 	if os.Getenv("HALO_SERVER") == "1" {
 		options.server = true

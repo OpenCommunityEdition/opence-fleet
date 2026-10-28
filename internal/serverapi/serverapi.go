@@ -351,6 +351,13 @@ type Player struct {
 	Muted   bool   `json:"muted"`
 	Address string `json:"address,omitempty"`
 	HWID    string `json:"hwid,omitempty"`
+	// its Discord account (with the addresses, from a game with the link
+	// capability): a verified account's when DiscordVerified (the machine
+	// showed a pass), else what the machine says of itself, which anyone
+	// could say
+	DiscordID       string `json:"discord_id,omitempty"`
+	DiscordName     string `json:"discord_name,omitempty"`
+	DiscordVerified bool   `json:"discord_verified,omitempty"`
 	// its machine's build, as its game tells the host (nil from a game that
 	// does not: a build before the message)
 	Client *ClientBuild `json:"client"`
@@ -498,13 +505,17 @@ func (c *Client) Maps(ctx context.Context) ([]MapInfo, error) {
 
 // Ban is a line of bans.txt, as GET /api/bans gives it.
 type Ban struct {
-	N       int    `json:"n"`
-	When    string `json:"when"`
-	IP      string `json:"ip"`
-	HWID    string `json:"hwid"`
-	Players string `json:"players"`
-	Reason  string `json:"reason"`
-	Until   *int64 `json:"until"`
+	N    int    `json:"n"`
+	When string `json:"when"`
+	IP   string `json:"ip"`
+	HWID string `json:"hwid"`
+	// a verified Discord account's id when DiscordVerified (no
+	// "(self-reported)" after it in the line), which the server matches
+	DiscordID       string `json:"discord_id,omitempty"`
+	DiscordVerified bool   `json:"discord_verified,omitempty"`
+	Players         string `json:"players"`
+	Reason          string `json:"reason"`
+	Until           *int64 `json:"until"`
 }
 
 // Bans asks GET /api/bans.
@@ -524,17 +535,82 @@ func (c *Client) DeleteBan(ctx context.Context, n int) error {
 // AddBan bans an address or hardware id without a present player (the
 // game's POST /api/bans, 7.2): the new line's number.
 func (c *Client) AddBan(ctx context.Context, ip, hwid, names, duration, reason string) (int, error) {
-	body := map[string]string{}
-	for k, v := range map[string]string{"ip": ip, "hwid": hwid, "names": names, "duration": duration, "reason": reason} {
-		if v != "" {
-			body[k] = v
-		}
-	}
+	return c.PostBan(ctx, BanRequest{IP: ip, HWID: hwid, Names: names, Duration: duration, Reason: reason})
+}
+
+// BanRequest is POST /api/bans' body: an address, a hardware id or a
+// verified Discord account's id (the link capability), or more than one.
+type BanRequest struct {
+	IP        string `json:"ip,omitempty"`
+	HWID      string `json:"hwid,omitempty"`
+	DiscordID string `json:"discord_id,omitempty"`
+	Names     string `json:"names,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// PostBan bans without a present player: the new line's number.
+func (c *Client) PostBan(ctx context.Context, b BanRequest) (int, error) {
 	var answer struct {
 		N int `json:"n"`
 	}
-	err := c.Call(ctx, http.MethodPost, "/api/bans", body, &answer)
+	err := c.Call(ctx, http.MethodPost, "/api/bans", b, &answer)
 	return answer.N, err
+}
+
+// VPN is GET /api/vpn's answer (the vpn capability): the policy, the
+// netlists held, and the joins refused for it since the server started.
+type VPN struct {
+	Policy      string    `json:"policy"`
+	Fail        string    `json:"fail"`
+	Lists       []VPNList `json:"lists"`
+	File        string    `json:"file"`
+	AllowRanges int       `json:"allow_ranges"`
+	BlockRanges int       `json:"block_ranges"`
+	// a list is held, from a master or the file
+	Held    bool           `json:"held"`
+	Refused map[string]int `json:"refused"`
+}
+
+// VPNList is a master's netlist as the server holds it.
+type VPNList struct {
+	Master    string `json:"master"`
+	KeyID     string `json:"key_id"`
+	Serial    int64  `json:"serial"`
+	Generated int64  `json:"generated"`
+	// nil: read from disk, not fetched in this run
+	Fetched *int64 `json:"fetched"`
+	Ranges  int    `json:"ranges"`
+	Error   string `json:"error"`
+}
+
+// Newest is the newest list's generation time (0: none).
+func (v *VPN) Newest() int64 {
+	var newest int64
+	for _, l := range v.Lists {
+		newest = max(newest, l.Generated)
+	}
+	return newest
+}
+
+// VPN asks GET /api/vpn.
+func (c *Client) VPN(ctx context.Context) (*VPN, error) {
+	var answer VPN
+	return &answer, c.Call(ctx, http.MethodGet, "/api/vpn", nil, &answer)
+}
+
+// VPNCheck is POST /api/vpn/check's answer: whether an address is refused
+// as a VPN's, and by what ("netlist", "vpn_block.txt", "vpn_allow.txt" or
+// "").
+type VPNCheck struct {
+	Listed bool   `json:"listed"`
+	By     string `json:"by"`
+}
+
+// CheckVPN asks POST /api/vpn/check.
+func (c *Client) CheckVPN(ctx context.Context, ip string) (*VPNCheck, error) {
+	var answer VPNCheck
+	return &answer, c.Call(ctx, http.MethodPost, "/api/vpn/check", map[string]string{"ip": ip}, &answer)
 }
 
 // Command runs a command (POST /api/command): its lines, and a refusal's.

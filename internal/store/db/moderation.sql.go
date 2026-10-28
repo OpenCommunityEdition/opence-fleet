@@ -10,13 +10,14 @@ import (
 )
 
 const createBan = `-- name: CreateBan :one
-INSERT INTO fleet_bans (hwid, address, names, reason, until, created_by, created_at, source_slug)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+INSERT INTO fleet_bans (hwid, address, discord_id, names, reason, until, created_by, created_at, source_slug)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
 `
 
 type CreateBanParams struct {
 	Hwid       string
 	Address    string
+	DiscordID  string
 	Names      string
 	Reason     string
 	Until      *int64
@@ -29,6 +30,7 @@ func (q *Queries) CreateBan(ctx context.Context, arg CreateBanParams) (int64, er
 	row := q.db.QueryRowContext(ctx, createBan,
 		arg.Hwid,
 		arg.Address,
+		arg.DiscordID,
 		arg.Names,
 		arg.Reason,
 		arg.Until,
@@ -51,7 +53,7 @@ func (q *Queries) DeleteBanStates(ctx context.Context, banID int64) error {
 }
 
 const getBan = `-- name: GetBan :one
-SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by FROM fleet_bans WHERE id = ?
+SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by, discord_id FROM fleet_bans WHERE id = ?
 `
 
 func (q *Queries) GetBan(ctx context.Context, id int64) (FleetBan, error) {
@@ -69,12 +71,13 @@ func (q *Queries) GetBan(ctx context.Context, id int64) (FleetBan, error) {
 		&i.SourceSlug,
 		&i.RemovedAt,
 		&i.RemovedBy,
+		&i.DiscordID,
 	)
 	return i, err
 }
 
 const listActiveBans = `-- name: ListActiveBans :many
-SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by FROM fleet_bans WHERE removed_at IS NULL AND (until IS NULL OR until > ?) ORDER BY created_at DESC
+SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by, discord_id FROM fleet_bans WHERE removed_at IS NULL AND (until IS NULL OR until > ?) ORDER BY created_at DESC
 `
 
 func (q *Queries) ListActiveBans(ctx context.Context, until *int64) ([]FleetBan, error) {
@@ -98,6 +101,7 @@ func (q *Queries) ListActiveBans(ctx context.Context, until *int64) ([]FleetBan,
 			&i.SourceSlug,
 			&i.RemovedAt,
 			&i.RemovedBy,
+			&i.DiscordID,
 		); err != nil {
 			return nil, err
 		}
@@ -181,7 +185,7 @@ func (q *Queries) ListBanStatesForBan(ctx context.Context, banID int64) ([]Insta
 }
 
 const listBans = `-- name: ListBans :many
-SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by FROM fleet_bans ORDER BY created_at DESC LIMIT ?
+SELECT id, hwid, address, names, reason, until, created_by, created_at, source_slug, removed_at, removed_by, discord_id FROM fleet_bans ORDER BY created_at DESC LIMIT ?
 `
 
 func (q *Queries) ListBans(ctx context.Context, limit int64) ([]FleetBan, error) {
@@ -205,6 +209,7 @@ func (q *Queries) ListBans(ctx context.Context, limit int64) ([]FleetBan, error)
 			&i.SourceSlug,
 			&i.RemovedAt,
 			&i.RemovedBy,
+			&i.DiscordID,
 		); err != nil {
 			return nil, err
 		}

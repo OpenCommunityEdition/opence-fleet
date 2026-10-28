@@ -26,6 +26,9 @@ func TestBanLine(t *testing.T) {
 		{"a hardware id for a while", db.FleetBan{Hwid: "0123456789abcdef0123456789abcdef", Until: &until},
 			"2026-10-26 21:04:05\tip=none\thwid=0123456789abcdef0123456789abcdef\tdiscord_username=none\tdiscord_id=none" +
 				"\tplayers=none\treason=fleet ban\tuntil=1793000000"},
+		// (a verified Discord account's id bare: the server matches it)
+		{"a Discord account", db.FleetBan{DiscordID: "300000000000000002", Names: "Pablo"},
+			"2026-10-26 21:04:05\tip=none\thwid=none\tdiscord_username=none\tdiscord_id=300000000000000002\tplayers=Pablo\treason=fleet ban"},
 		// (a tab or a new line in a name would make another field, or line)
 		{"words kept to the printable", db.FleetBan{Address: "2001:db8::1", Names: "Chief\tip=1.2.3.4\nx", Reason: "wall\rhack é"},
 			"2026-10-26 21:04:05\tip=2001:db8::1\thwid=none\tdiscord_username=none\tdiscord_id=none\tplayers=Chiefip=1.2.3.4x" +
@@ -43,7 +46,8 @@ func TestBanLine(t *testing.T) {
 func TestBanLineFitsTheServer(t *testing.T) {
 	until := int64(1793000000)
 	long := strings.Repeat("x", 2000)
-	line := BanLine(db.FleetBan{Address: "203.0.113.7", Hwid: long, Names: long, Reason: long, Until: &until}, time.Now())
+	line := BanLine(db.FleetBan{Address: "203.0.113.7", Hwid: long, DiscordID: long, Names: long, Reason: long, Until: &until},
+		time.Now())
 	if len(line)+1 > 511 {
 		t.Fatalf("a line of %d characters", len(line))
 	}
@@ -57,7 +61,8 @@ func TestCreateBan(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
 	c := stop(f, now)
-	for _, in := range []BanInput{{}, {Names: "Chief"}, {Address: "203.0.113"}, {Address: "a.b.c.d"}} {
+	for _, in := range []BanInput{{}, {Names: "Chief"}, {Address: "203.0.113"}, {Address: "a.b.c.d"}, {DiscordID: "12ab"},
+		{DiscordID: "123456789012345678901"}, {Address: "203.0.113.7", DiscordID: "self-reported"}} {
 		if e, ok := AsError(func() error { _, err := f.CreateBan(ctx, "user:paul", in); return err }()); !ok || e.Code != "schema" {
 			t.Errorf("%+v: %v", in, e)
 		}
@@ -81,6 +86,17 @@ func TestCreateBan(t *testing.T) {
 	if a, ok := audited(t, f, "ban.create"); !ok || a.Actor != "user:paul" {
 		t.Fatalf("%+v", a)
 	}
+	// a verified Discord account's id alone is a ban
+	discord, err := f.CreateBan(ctx, "user:paul", BanInput{DiscordID: " 300000000000000002 ", Reason: "vpn hopping"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := f.Store.GetBan(ctx, discord); b.DiscordID != "300000000000000002" || b.Address != "" || b.Hwid != "" {
+		t.Fatalf("%+v", b)
+	}
+	if err := f.Unban(ctx, "user:paul", discord); err != nil {
+		t.Fatal(err)
+	}
 	active := func() []int64 {
 		bans, err := f.Bans(ctx, false)
 		if err != nil {
@@ -100,7 +116,7 @@ func TestCreateBan(t *testing.T) {
 	if ids := active(); len(ids) != 1 || ids[0] != forever {
 		t.Fatalf("%v", ids)
 	}
-	if all, _ := f.Bans(ctx, true); len(all) != 2 {
+	if all, _ := f.Bans(ctx, true); len(all) != 3 {
 		t.Fatalf("%d bans in all", len(all))
 	}
 	// a removed ban is no longer active
@@ -161,6 +177,9 @@ func TestBanOnSight(t *testing.T) {
 	if _, err := f.CreateBan(ctx, "user:paul", BanInput{HWID: "feedface", Reason: "old", Duration: time.Minute}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.CreateBan(ctx, "user:paul", BanInput{DiscordID: "300000000000000002", Reason: "vpn hopping"}); err != nil {
+		t.Fatal(err)
+	}
 	// (the expired one: a minute is over)
 	clk.add(2 * time.Minute)
 
@@ -179,6 +198,11 @@ func TestBanOnSight(t *testing.T) {
 		{"an expired ban", eventFields{Slot: 4, Name: "Cortana", Address: "192.0.2.2", HWID: "feedface"}, "", false, nil},
 		// (no address in the event: the player list's; feedface's ban is over)
 		{"by the player list", eventFields{Slot: 5, Name: "Arbiter"}, "", false, nil},
+		{"by a verified Discord account", eventFields{Slot: 6, Name: "Pablo", Address: "198.51.100.9", HWID: "abab",
+			DiscordID: "300000000000000002", DiscordVerified: true}, "6", true, []string{"fleet ban: vpn hopping"}},
+		// (what a machine says of its account is anyone's to say)
+		{"a self-reported Discord account", eventFields{Slot: 7, Name: "Kat", Address: "198.51.100.10", HWID: "cdcd",
+			DiscordID: "300000000000000002"}, "", false, nil},
 	}
 	for _, c := range cases {
 		before := len(bansOf(a))
@@ -222,7 +246,7 @@ func TestBanOnSight(t *testing.T) {
 			}
 		}
 	}
-	if onSight != 3 {
+	if onSight != 4 {
 		t.Fatalf("%d bans on sight in the audit", onSight)
 	}
 }
@@ -275,10 +299,13 @@ func TestImportBans(t *testing.T) {
 		"2026-01-01 10:00:00\tip=\thwid=abcd\tdiscord_username=none\tdiscord_id=none\tplayers=Johnson\treason=speed\tuntil=" + itoa(future),
 		"2026-01-01 10:00:00\tip=192.0.2.1\thwid=none\tdiscord_username=none\tdiscord_id=none\tplayers=Keyes\treason=old\tuntil=" + itoa(past),
 		"2026-01-01 10:00:00\tip=none\thwid=none\tplayers=nobody\treason=nothing",
+		"2026-01-01 10:00:00\tip=none\thwid=none\tdiscord_username=pablo\tdiscord_id=300000000000000002\tplayers=Pablo\treason=vpn",
+		"2026-01-01 10:00:00\tip=none\thwid=none\tdiscord_username=kat (self-reported)\tdiscord_id=300000000000000003 (self-reported)" +
+			"\tplayers=Kat\treason=said so",
 		"",
 	}, "\n")
 	n, err := f.ImportBans(ctx, "user:paul", text)
-	if err != nil || n != 2 {
+	if err != nil || n != 3 {
 		t.Fatal(n, err)
 	}
 	bans, _ := f.Bans(ctx, false)
@@ -291,5 +318,114 @@ func TestImportBans(t *testing.T) {
 	}
 	if b := byName["Johnson"]; b.Hwid != "abcd" || b.Address != "" || b.Until == nil {
 		t.Fatalf("%+v", b)
+	}
+	if b := byName["Pablo"]; b.DiscordID != "300000000000000002" || b.Address != "" || b.Hwid != "" {
+		t.Fatalf("%+v", b)
+	}
+	if _, ok := byName["Kat"]; ok {
+		t.Fatal("a self-reported Discord account was imported")
+	}
+}
+
+// A ban of a verified Discord account reaches the servers whose game has
+// them (the link capability) by POST /api/bans' discord_id; a server
+// without waits (unsupported) until its game says it has, and a ban by
+// address too reaches it without the Discord part.
+func TestDiscordBanApplied(t *testing.T) {
+	f, _ := fleet(t)
+	ctx := context.Background()
+	nodeID, token := node(t, f, "a", spec.DefaultNode())
+	slugs := servers(t, f, profile(t, f, "Ranked"), 2, false, "a")
+	linked, older := slugs[0], slugs[1]
+	a := connect(t, f, token, func(r request) *agentproto.Reply {
+		if r.Type == agentproto.TAPI && r.Path == "/api/bans" {
+			return ok(`{"ok":true,"n":0}`)
+		}
+		return ok(`{}`)
+	})
+	until(t, "the node online", func() bool { return f.Hub.Online(nodeID) })
+	f.Live.SetInstance(nodeID, agentproto.Instance{Slug: linked, State: agentproto.Up,
+		Capabilities: []string{"events", "bans", "ban_address", "vpn", "link"}})
+	f.Live.SetInstance(nodeID, agentproto.Instance{Slug: older, State: agentproto.Up, Capabilities: []string{"events", "bans", "ban_address"}})
+	posts := func(slug string) []map[string]any {
+		var out []map[string]any
+		for _, r := range a.got(agentproto.TAPI) {
+			if r.Slug == slug && r.Method == http.MethodPost && r.Path == "/api/bans" {
+				var body map[string]any
+				json.Unmarshal(r.Body, &body)
+				out = append(out, body)
+			}
+		}
+		return out
+	}
+	state := func(id int64, slug string) db.InstanceBanState {
+		rows, _ := f.Store.ListBanStatesForBan(ctx, id)
+		for _, r := range rows {
+			if r.Slug == slug {
+				return r
+			}
+		}
+		return db.InstanceBanState{}
+	}
+	id, err := f.CreateBan(ctx, "user:paul", BanInput{DiscordID: "300000000000000002", Names: "Pablo", Reason: "vpn hopping"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the ban applied", func() bool { return state(id, linked).State != "" && state(id, older).State != "" })
+	if s := state(id, linked); s.State != "applied" || s.Detail != "POST /api/bans" {
+		t.Fatalf("%+v", s)
+	}
+	if got := posts(linked); len(got) != 1 || got[0]["discord_id"] != "300000000000000002" || got[0]["ip"] != nil {
+		t.Fatalf("%+v", got)
+	}
+	if s := state(id, older); s.State != "unsupported" || !strings.Contains(s.Detail, "link capability") {
+		t.Fatalf("%+v", s)
+	}
+	if got := posts(older); len(got) != 0 {
+		t.Fatalf("a Discord ban sent to a server without the link capability: %+v", got)
+	}
+	// a ban by address and account: the older server gets the address alone
+	both, err := f.CreateBan(ctx, "user:paul", BanInput{Address: "198.51.100.9", DiscordID: "300000000000000004", Reason: "both"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the second ban applied", func() bool { return state(both, older).State != "" && state(both, linked).State != "" })
+	if got := posts(older); len(got) != 1 || got[0]["ip"] != "198.51.100.9" || got[0]["discord_id"] != nil {
+		t.Fatalf("%+v", got)
+	}
+	if got := posts(linked); len(got) != 2 || got[1]["ip"] != "198.51.100.9" || got[1]["discord_id"] != "300000000000000004" {
+		t.Fatalf("%+v", got)
+	}
+	// the older server updated: its hello names link, and the ban that
+	// waited is applied
+	data, _ := json.Marshal(agentproto.Instance{Slug: older, State: agentproto.Up, Capabilities: []string{"ban_address", "link"}})
+	f.Report(nodeID, agentproto.TInstance, data)
+	until(t, "the waiting ban applied", func() bool { return state(id, older).State == "applied" })
+	if got := posts(older); len(got) != 2 || got[1]["discord_id"] != "300000000000000002" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// A server's own ban of a verified player is imported with the account; a
+// self-reported one is not.
+func TestImportServerBanDiscord(t *testing.T) {
+	f, _ := fleet(t)
+	ctx := context.Background()
+	nodeID, token := node(t, f, "a", spec.DefaultNode())
+	slug := servers(t, f, profile(t, f, "Ranked"), 1, false, "a")[0]
+	connect(t, f, token, func(r request) *agentproto.Reply {
+		if r.Type == agentproto.TAPI && r.Path == "/api/bans" && r.Method == http.MethodGet {
+			return ok(`{"ok":true,"bans":[
+				{"n":0,"when":"2026-10-26 12:00:00","ip":"","hwid":"","discord_id":"300000000000000003","discord_verified":false,"players":"Kat","reason":"said so","until":null},
+				{"n":1,"when":"2026-10-26 12:00:00","ip":"","hwid":"","discord_id":"300000000000000002","discord_verified":true,"players":"Pablo","reason":"vpn","until":null}]}`)
+		}
+		return ok(`{}`)
+	})
+	until(t, "the node online", func() bool { return f.Hub.Online(nodeID) })
+	f.importServerBan(ctx, slug, eventFields{Event: "ban", Name: "Pablo", By: "web admin"})
+	f.importServerBan(ctx, slug, eventFields{Event: "ban", Name: "Kat", By: "web admin"})
+	bans, _ := f.Bans(ctx, false)
+	if len(bans) != 1 || bans[0].DiscordID != "300000000000000002" || bans[0].Names != "Pablo" || bans[0].SourceSlug != slug {
+		t.Fatalf("%+v", bans)
 	}
 }

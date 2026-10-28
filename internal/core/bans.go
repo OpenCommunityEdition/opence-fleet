@@ -23,6 +23,9 @@ const fleetBy = "opence-fleet"
 // BanInput is a fleet ban to make.
 type BanInput struct {
 	Address, HWID, Names, Reason string
+	// a verified Discord account's id (digits): the game's link capability
+	// keeps out every machine that shows a pass of it, from any address
+	DiscordID string
 	// 0: for ever
 	Duration time.Duration
 	Source   string
@@ -52,8 +55,11 @@ func BanLine(b db.FleetBan, now time.Time) string {
 	if b.Reason != "" {
 		reason += ": " + b.Reason
 	}
-	line := fmt.Sprintf("%s\tip=%s\thwid=%s\tdiscord_username=none\tdiscord_id=none\tplayers=%s\treason=%s",
-		now.Format("2006-01-02 15:04:05"), field(b.Address, 64), field(b.Hwid, 64), field(b.Names, 95), field(reason, 95))
+	// (a verified account's id is written bare: "(self-reported)" after it
+	// would be a machine's own word, which the server never matches)
+	line := fmt.Sprintf("%s\tip=%s\thwid=%s\tdiscord_username=none\tdiscord_id=%s\tplayers=%s\treason=%s",
+		now.Format("2006-01-02 15:04:05"), field(b.Address, 64), field(b.Hwid, 64), field(b.DiscordID, 20), field(b.Names, 95),
+		field(reason, 95))
 	if b.Until != nil {
 		line += "\tuntil=" + strconv.FormatInt(*b.Until, 10)
 	}
@@ -80,30 +86,47 @@ func (f *Fleet) Bans(ctx context.Context, all bool) ([]db.FleetBan, error) {
 	return f.Store.ListActiveBans(ctx, &[]int64{f.Now().Unix()}[0])
 }
 
+// DiscordID tells whether a text is a Discord account's id: up to 20
+// digits (the game's limit).
+func DiscordID(text string) bool {
+	if text == "" || len(text) > 20 {
+		return false
+	}
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // CreateBan makes a fleet ban and applies it to every server.
 func (f *Fleet) CreateBan(ctx context.Context, actor string, in BanInput) (int64, error) {
-	in.Address, in.HWID = strings.TrimSpace(in.Address), strings.TrimSpace(in.HWID)
-	if in.Address == "" && in.HWID == "" {
-		return 0, Refuse(http.StatusBadRequest, "schema", "a ban names an address or a hardware id")
+	in.Address, in.HWID, in.DiscordID = strings.TrimSpace(in.Address), strings.TrimSpace(in.HWID), strings.TrimSpace(in.DiscordID)
+	if in.Address == "" && in.HWID == "" && in.DiscordID == "" {
+		return 0, Refuse(http.StatusBadRequest, "schema", "a ban names an address, a hardware id or a verified Discord account's id")
 	}
 	if in.Address != "" {
 		if _, err := netip.ParseAddr(in.Address); err != nil {
 			return 0, Refuse(http.StatusBadRequest, "schema", "%q is not an address", in.Address)
 		}
 	}
+	if in.DiscordID != "" && !DiscordID(in.DiscordID) {
+		return 0, Refuse(http.StatusBadRequest, "schema", "a Discord account's id is up to 20 digits (Discord's Copy User ID)")
+	}
 	var until *int64
 	if in.Duration > 0 {
 		until = ptrInt(f.Now().Add(in.Duration).Unix())
 	}
-	id, err := f.Store.CreateBan(ctx, db.CreateBanParams{Hwid: in.HWID, Address: in.Address, Names: in.Names, Reason: in.Reason,
-		Until: until, CreatedBy: actor, CreatedAt: f.Now().Unix(), SourceSlug: in.Source})
+	id, err := f.Store.CreateBan(ctx, db.CreateBanParams{Hwid: in.HWID, Address: in.Address, DiscordID: in.DiscordID, Names: in.Names,
+		Reason: in.Reason, Until: until, CreatedBy: actor, CreatedAt: f.Now().Unix(), SourceSlug: in.Source})
 	if err != nil {
 		return 0, err
 	}
 	f.Audit(ctx, actor, "ban.create", strconv.FormatInt(id, 10), map[string]any{"names": in.Names, "reason": in.Reason,
 		"until": until, "source": in.Source})
 	f.Live.AddFeed(live.FeedItem{Slug: in.Source, Kind: "mod", Event: "fleet_ban", Text: fmt.Sprintf("%s: fleet ban of %s (%s)",
-		actor, firstNonEmpty(in.Names, in.Address, in.HWID), in.Reason)})
+		actor, firstNonEmpty(in.Names, in.Address, in.HWID, "a Discord account"), in.Reason)})
 	go f.applyBan(context.Background(), id, in.Source)
 	return id, nil
 }
@@ -146,9 +169,15 @@ func (f *Fleet) BanPlayer(ctx context.Context, actor, slug string, slot int, nam
 		return err
 	}
 	f.Audit(ctx, actor, "player.ban", slug, map[string]any{"name": target.Name, "reason": reason, "duration": duration.String()})
-	if fleet && (target.Address != "" || target.HWID != "") {
-		_, err := f.CreateBan(ctx, actor, BanInput{Address: target.Address, HWID: target.HWID, Names: target.Name, Reason: reason,
-			Duration: duration, Source: slug})
+	// (a verified Discord account too: the other servers keep it out from
+	// any address; what a machine says of its account is nobody's proof)
+	discord := ""
+	if target.DiscordVerified {
+		discord = target.DiscordID
+	}
+	if fleet && (target.Address != "" || target.HWID != "" || discord != "") {
+		_, err := f.CreateBan(ctx, actor, BanInput{Address: target.Address, HWID: target.HWID, DiscordID: discord, Names: target.Name,
+			Reason: reason, Duration: duration, Source: slug})
 		return err
 	}
 	return nil
@@ -168,7 +197,9 @@ func byReason(reason, actor string) string {
 // game's POST /api/bans where it has it (7.2); else the server's own ban of
 // the machine when present, else a line in its bans.txt (the agent's);
 // a server whose node is offline waits (pending), and gets it at its next
-// connect.
+// connect. A ban of a Discord account alone waits (unsupported) on a server
+// whose game has no verified accounts (no link capability, or no hello
+// yet), and is applied once it says it has.
 func (f *Fleet) applyBan(ctx context.Context, id int64, source string) {
 	ban, err := f.Store.GetBan(ctx, id)
 	if err != nil {
@@ -191,11 +222,19 @@ func (f *Fleet) applyBanTo(ctx context.Context, ban db.FleetBan, i db.Instance) 
 	state, detail := "applied", ""
 	l := f.Live.Instance(i.Slug)
 	online := f.Hub.Online(i.NodeID) || i.Kind == "external"
+	link := l != nil && l.Has("link")
 	switch {
 	case !online:
 		state, detail = "pending", "the node is offline"
+	case ban.Address == "" && ban.Hwid == "" && !link:
+		state = "unsupported"
+		if l == nil || len(l.Capabilities) == 0 {
+			detail = "a Discord account's ban: it waits for the server's hello (its game's capabilities)"
+		} else {
+			detail = "a Discord account's ban: this server's game has no verified accounts (the link capability); update it"
+		}
 	case l != nil && l.State == "up" && l.Has("ban_address"):
-		if _, err := f.addServerBan(ctx, i.Slug, ban); err != nil {
+		if _, err := f.addServerBan(ctx, i.Slug, ban, link); err != nil {
 			state, detail = "failed", err.Error()
 		} else {
 			detail = "POST /api/bans"
@@ -206,7 +245,7 @@ func (f *Fleet) applyBanTo(ctx context.Context, ban db.FleetBan, i db.Instance) 
 		if l != nil && l.State == "up" {
 			if players, err := f.Players(ctx, i.Slug); err == nil {
 				for _, p := range players {
-					if (ban.Address != "" && p.Address == ban.Address) || (ban.Hwid != "" && p.HWID == ban.Hwid) {
+					if banMatches(ban, p.Address, p.HWID, p.DiscordID, link && p.DiscordVerified) {
 						body := map[string]any{"name": p.Name, "reason": "fleet ban: " + ban.Reason}
 						if d := durationText(ban.Until, f.Now()); d != "" {
 							body["duration"] = d
@@ -230,22 +269,55 @@ func (f *Fleet) applyBanTo(ctx context.Context, ban db.FleetBan, i db.Instance) 
 		AppliedAt: ptrInt(f.Now().Unix()), Detail: detail})
 }
 
-func (f *Fleet) addServerBan(ctx context.Context, slug string, ban db.FleetBan) (int, error) {
-	body := map[string]string{"reason": "fleet ban: " + ban.Reason, "names": ban.Names}
-	if ban.Address != "" {
-		body["ip"] = ban.Address
-	}
-	if ban.Hwid != "" {
-		body["hwid"] = ban.Hwid
-	}
-	if d := durationText(ban.Until, f.Now()); d != "" {
-		body["duration"] = d
+// banMatches tells whether a machine is a ban's: by its address, its
+// hardware id, or its Discord account when verified (a pass it showed).
+func banMatches(ban db.FleetBan, address, hwid, discordID string, verified bool) bool {
+	return (ban.Address != "" && address == ban.Address) || (ban.Hwid != "" && hwid == ban.Hwid) ||
+		(ban.DiscordID != "" && verified && discordID == ban.DiscordID)
+}
+
+// addServerBan is the game's POST /api/bans; the Discord account's part
+// for a server with the link capability alone (an older one refuses the
+// field, or would take it for a machine's own word).
+func (f *Fleet) addServerBan(ctx context.Context, slug string, ban db.FleetBan, link bool) (int, error) {
+	body := serverapi.BanRequest{IP: ban.Address, HWID: ban.Hwid, Names: ban.Names, Reason: "fleet ban: " + ban.Reason,
+		Duration: durationText(ban.Until, f.Now())}
+	if link {
+		body.DiscordID = ban.DiscordID
 	}
 	var answer struct {
 		N int `json:"n"`
 	}
 	err := f.Call(ctx, slug, http.MethodPost, "/api/bans", body, &answer)
 	return answer.N, err
+}
+
+// applyWaitingBans applies the bans a server could not take before its
+// game said it has verified Discord accounts (unsupported).
+func (f *Fleet) applyWaitingBans(ctx context.Context, slug string) {
+	states, err := f.Store.ListBanStates(ctx)
+	if err != nil {
+		return
+	}
+	waiting := map[int64]bool{}
+	for _, s := range states {
+		if s.Slug == slug && s.State == "unsupported" {
+			waiting[s.BanID] = true
+		}
+	}
+	if len(waiting) == 0 {
+		return
+	}
+	i, err := f.Store.GetInstance(ctx, slug)
+	if err != nil {
+		return
+	}
+	active, _ := f.Bans(ctx, false)
+	for _, b := range active {
+		if waiting[b.ID] {
+			f.applyBanTo(ctx, b, i)
+		}
+	}
 }
 
 // ApplyPendingBans applies the bans that waited for a node's servers.
@@ -304,7 +376,7 @@ func (f *Fleet) unbanOn(ctx context.Context, slug string, ban db.FleetBan) {
 	}
 	var lines []int
 	for _, b := range answer.Bans {
-		if (ban.Address != "" && b.IP == ban.Address) || (ban.Hwid != "" && b.HWID == ban.Hwid) {
+		if banMatches(ban, b.IP, b.HWID, b.DiscordID, b.DiscordVerified) {
 			lines = append(lines, b.N)
 		}
 	}
@@ -336,9 +408,15 @@ func (f *Fleet) importServerBan(ctx context.Context, slug string, ev eventFields
 		if hwid == "none" {
 			hwid = ""
 		}
+		// (a verified account's id alone: a machine's own word is not a ban)
+		discord := ""
+		if b.DiscordVerified && DiscordID(b.DiscordID) {
+			discord = b.DiscordID
+		}
 		active, _ := f.Bans(ctx, false)
 		for _, existing := range active {
-			if (address != "" && existing.Address == address) || (hwid != "" && existing.Hwid == hwid) {
+			if (address != "" && existing.Address == address) || (hwid != "" && existing.Hwid == hwid) ||
+				(discord != "" && existing.DiscordID == discord) {
 				return
 			}
 		}
@@ -349,34 +427,35 @@ func (f *Fleet) importServerBan(ctx context.Context, slug string, ev eventFields
 				return
 			}
 		}
-		f.CreateBan(ctx, "server:"+slug, BanInput{Address: address, HWID: hwid, Names: b.Players,
+		f.CreateBan(ctx, "server:"+slug, BanInput{Address: address, HWID: hwid, DiscordID: discord, Names: b.Players,
 			Reason: firstNonEmpty(b.Reason, ev.Reason, "banned on "+slug), Duration: duration, Source: slug})
 		return
 	}
 }
 
 // checkJoin bans on sight a machine of the fleet's list that joins (a ban
-// made while it was away): by the event's address and hardware id (7.4),
-// else the server's player list.
+// made while it was away): by the event's address, hardware id and
+// verified Discord account (7.4; they come together), else the server's
+// player list.
 func (f *Fleet) checkJoin(ctx context.Context, slug string, ev eventFields) {
 	active, err := f.Bans(ctx, false)
 	if err != nil || len(active) == 0 {
 		return
 	}
-	address, hwid := ev.Address, ev.HWID
-	if address == "" && hwid == "" {
+	address, hwid, discord, verified := ev.Address, ev.HWID, ev.DiscordID, ev.DiscordVerified
+	if address == "" && hwid == "" && discord == "" {
 		players, err := f.Players(ctx, slug)
 		if err != nil {
 			return
 		}
 		for _, p := range players {
 			if p.Slot == ev.Slot {
-				address, hwid = p.Address, p.HWID
+				address, hwid, discord, verified = p.Address, p.HWID, p.DiscordID, p.DiscordVerified
 			}
 		}
 	}
 	for _, b := range active {
-		if (b.Address != "" && b.Address == address) || (b.Hwid != "" && b.Hwid == hwid) {
+		if banMatches(b, address, hwid, discord, verified) {
 			body := map[string]any{"name": ev.Name, "reason": "fleet ban: " + b.Reason}
 			if d := durationText(b.Until, f.Now()); d != "" {
 				body["duration"] = d
@@ -410,7 +489,12 @@ func (f *Fleet) ImportBans(ctx context.Context, actor, text string) (int, error)
 		if fields["hwid"] == "none" {
 			fields["hwid"] = ""
 		}
-		if fields["ip"] == "" && fields["hwid"] == "" {
+		// (a verified account's id is bare; "none", or one followed by
+		// "(self-reported)", is no account the fleet can ban)
+		if !DiscordID(fields["discord_id"]) {
+			fields["discord_id"] = ""
+		}
+		if fields["ip"] == "" && fields["hwid"] == "" && fields["discord_id"] == "" {
 			continue
 		}
 		var duration time.Duration
@@ -420,7 +504,8 @@ func (f *Fleet) ImportBans(ctx context.Context, actor, text string) (int, error)
 				continue
 			}
 		}
-		if _, err := f.CreateBan(ctx, actor, BanInput{Address: fields["ip"], HWID: fields["hwid"], Names: fields["players"],
+		if _, err := f.CreateBan(ctx, actor, BanInput{Address: fields["ip"], HWID: fields["hwid"], DiscordID: fields["discord_id"],
+			Names:  fields["players"],
 			Reason: fields["reason"], Duration: duration, Source: "import"}); err == nil {
 			n++
 		}

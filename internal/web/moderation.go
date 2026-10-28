@@ -40,8 +40,8 @@ func (s *Server) fleetPlayers(ctx context.Context, search string) ([]pages.Fleet
 				return
 			}
 			for _, p := range players {
-				if search != "" && !strings.Contains(strings.ToLower(p.Name+" "+p.Address+" "+p.HWID+" "+clientText(p.Client)),
-					search) {
+				if search != "" && !strings.Contains(strings.ToLower(p.Name+" "+p.Address+" "+p.HWID+" "+p.DiscordName+" "+
+					p.DiscordID+" "+clientText(p.Client)), search) {
 					continue
 				}
 				out = append(out, pages.FleetPlayer{Player: p, Slug: i.Slug, Server: i.Name})
@@ -76,7 +76,7 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request) {
 	all := r.URL.Query().Get("all") == "1"
 	bans, _ := s.Fleet.Bans(ctx, all)
 	states, _ := s.Fleet.Store.ListBanStates(ctx)
-	counts := map[int64][3]int{}
+	counts := map[int64][4]int{}
 	for _, st := range states {
 		c := counts[st.BanID]
 		switch st.State {
@@ -84,6 +84,8 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request) {
 			c[0]++
 		case "pending":
 			c[1]++
+		case "unsupported":
+			c[3]++
 		default:
 			c[2]++
 		}
@@ -92,7 +94,7 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request) {
 	var lines []pages.BanLine
 	for _, b := range bans {
 		c := counts[b.ID]
-		lines = append(lines, pages.BanLine{FleetBan: b, Held: c[0], Pending: c[1], Failed: c[2]})
+		lines = append(lines, pages.BanLine{FleetBan: b, Held: c[0], Pending: c[1], Failed: c[2], Unsupported: c[3]})
 	}
 	s.render(w, r, http.StatusOK, pages.Bans(s.page(r, "Bans", "bans"), lines, all))
 }
@@ -100,7 +102,8 @@ func (s *Server) bansPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addBan(w http.ResponseWriter, r *http.Request) {
 	duration, _ := time.ParseDuration(r.FormValue("duration"))
 	_, err := s.Fleet.CreateBan(r.Context(), s.actor(r), core.BanInput{Address: r.FormValue("address"), HWID: r.FormValue("hwid"),
-		Names: r.FormValue("names"), Reason: r.FormValue("reason"), Duration: duration, Source: "by hand"})
+		DiscordID: r.FormValue("discord_id"), Names: r.FormValue("names"), Reason: r.FormValue("reason"), Duration: duration,
+		Source: "by hand"})
 	if err != nil {
 		s.fail(w, r, "/bans", err)
 		return
