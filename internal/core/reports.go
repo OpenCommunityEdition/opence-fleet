@@ -316,6 +316,10 @@ func (f *Fleet) onEvent(node int64, e agentproto.Event) {
 		if ev.Event == "ban" {
 			go f.importServerBan(context.Background(), slug, ev)
 		}
+	case "join_refused":
+		// (the VPN policy's refusal at the door: the address is the event's,
+		// kept with it, and not in the feed)
+		feed("mod", fmt.Sprintf("%s refused at the door: %s", firstNonEmpty(ev.Name, "a machine"), RefusalWords(ev.Reason)))
 	case "speed_hack":
 		feed("bad", fmt.Sprintf("speed hack: machine %d %s", ev.Machine, ev.Action))
 		f.raiseAlert(ctx, "speed_hack", slug, fmt.Sprintf("machine %d: %s", ev.Machine, ev.Action))

@@ -95,7 +95,7 @@ The pages, by what they are for:
 | --- | --- |
 | Dashboard | the fleet's tiles (servers up, players, nodes, alerts), the live feed, say to every server |
 | Servers | every server with its state, game and players, live; filters; bulk actions (start, stop, restart, drain, update, say, set a rotation, apply a profile, groups) as jobs |
-| A server | overview, players (kick, ban, tell, mute), rotation, gametypes, the console (the owner's, or the RCON's), settings (live, or *restart needed*), files (`debug.txt`, `stderr.txt`, `bans.txt`), history |
+| A server | overview (with its VPN policy's card), players (kick, ban, tell, mute), rotation, gametypes, the console (the owner's, or the RCON's), settings (live, or *restart needed*), files (`debug.txt`, `stderr.txt`, `bans.txt`), history |
 | Players | everyone playing across the fleet, searchable; ban on sight |
 | Nodes | machines, their health and versions, *Add a node*, their settings, forget |
 | Profiles | rotations, settings, gametypes, release channel, password policy, publisher key: a change reaches every server of the profile live (or marks it *restart needed*) |
@@ -104,8 +104,33 @@ The pages, by what they are for:
 | Masters | the master servers, the fleet's publisher keys and what each master says of them |
 | Bans | fleet bans (by address, hardware id or verified Discord account, with an expiry), imported or applied everywhere |
 | Jobs, Schedules | bulk actions and their waves; cron schedules of them (in the fleet's time zone) |
-| Alerts | crashes, crash loops, nodes offline, probes failing, slow frames, a disk filling; Discord and generic webhooks |
+| Alerts | crashes, crash loops, nodes offline, probes failing, slow frames, a disk filling, a server without a current VPN list; Discord and generic webhooks |
 | Audit, Team, Settings | who did what; users, roles (viewer, moderator, admin, owner), invites and API tokens; the fleet's settings |
+
+### VPNs and linked Discord accounts
+
+A dedicated server refuses by default the machines that join from a VPN's, a
+Tor exit's or a datacenter's address, as the netlists it fetches from the
+masters it publishes to say, unless they show a pass of a Discord account
+linked at one of them (the game's `docs/dedicated_server.md`, "VPNs and
+linked Discord accounts"). Profiles and servers set its policy in the
+Safety group: `server.vpn_policy` (`link`, the default; `block`; `off`),
+`server.vpn_fail` (`open` or `closed`: what the server does until it holds a
+list), `server.vpn_list` (a netlist file instead of the masters'; read at the
+start, so a change waits for a restart), `server.vpn_check_lan` (tests),
+`server.link_min_age_days` (365) and `server.link_one_seat`; the rest are
+live.
+
+A server whose game has the policy (its RCON hello's `vpn`) shows a **VPN**
+card on its overview: the policy, what it does without a list, the lists it
+holds (each master's serial, ranges, age and last error, and the file's),
+its joins refused (in the last hour, from the `join_refused` events the
+fleet keeps, which are also lines of the feed; and since it started, by
+reason), and for moderators a check of an address (is it refused, and by
+what). The alert *A server without a current VPN list* (`vpn_list`) fires
+when such a server holds no list for 2 hours, or when its masters' lists are
+all over 48 hours old: it cannot reach its masters (the fleet asks each
+server every 5 minutes; a server whose policy is `off` needs none).
 
 A player who joins with a pass of a Discord account linked at a master (the
 game's VPN policy lets such a player in over a VPN) is a *verified* account:
@@ -229,8 +254,9 @@ rollback when one does not come back up.
 
 The servers' events and games: `FLEET_EVENTS_DAYS` (30). Player-count
 samples (the sparklines): `FLEET_SAMPLES_DAYS` (7). The audit: for good.
-Players' addresses and hardware ids are shown to admins and owners alone,
-and kept with the events for fleet bans; `FLEET_LOG_ADDRESSES=false`
+Players' addresses and hardware ids are shown to admins and owners alone
+(their verified Discord accounts to moderators and above), and kept with the
+events for fleet bans; `FLEET_LOG_ADDRESSES=false`
 keeps them out of the servers' logs and the fleet.
 
 ## Contents

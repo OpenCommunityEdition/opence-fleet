@@ -8,7 +8,7 @@
 // plane's test double; tools/fakehalo/Dockerfile makes it an image of the
 // server image's shape.
 //
-//	fakehalo --server [--tick 0.1] [--players 4] [--crash-after 30s] [--stall 20s] [--no-ready]
+//	fakehalo --server [--tick 0.1] [--players 4] [--crash-after 30s] [--stall 20s] [--no-ready] [--vpn=false]
 //	fakehalo --version | --keygen | --sign <text> | --help
 package main
 

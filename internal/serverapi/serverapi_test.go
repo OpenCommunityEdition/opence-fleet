@@ -23,9 +23,9 @@ const (
 )
 
 // fakehalo builds tools/fakehalo and runs it as `halo --server` on free
-// ports, with synthetic maps, the admin's and the owner's passwords and a
-// pinned region: its web port's base URL.
-func fakehalo(t *testing.T) string {
+// ports, with synthetic maps, the admin's and the owner's passwords, a
+// pinned region and the extra variables: its web port's base URL.
+func fakehalo(t *testing.T, extra ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go on PATH to build tools/fakehalo")
@@ -52,6 +52,7 @@ func fakehalo(t *testing.T) string {
 		"HALO_SERVER_WEB_PORT="+fmt.Sprint(web), "HALO_SERVER_WEB_BIND=127.0.0.1", "HALO_NET_TUNNEL_PORT="+fmt.Sprint(udp),
 		"HALO_SERVER_WEB_PASSWORD="+adminPassword, "HALO_SERVER_WEB_OWNER_PASSWORD="+ownerPassword,
 		"HALO_SERVER_REGION=eu", "FAKEHALO_TICK=0.05")
+	env = append(env, extra...)
 	if err := os.MkdirAll(filepath.Join(work, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -642,6 +643,71 @@ func testRCON(t *testing.T, ctx context.Context, base string, admin *Client) {
 
 // The client's reading of answers that are not the server's, against
 // httptest.
+// The VPN policy (the vpn capability): GET /api/vpn and POST
+// /api/vpn/check; a server that holds a netlist refuses the script's VPN
+// machines that show no pass it takes (it publishes nowhere: none), each a
+// join_refused event.
+func TestFakehaloVPN(t *testing.T) {
+	base := fakehalo(t, "FAKEHALO_NETLIST=held")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	admin := &Client{Base: base, Password: adminPassword, By: "serverapi test"}
+	owner := &Client{Base: base, Password: ownerPassword, By: "serverapi test (owner)"}
+	var v *VPN
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		var err error
+		if v, err = admin.VPN(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if v.Refused["vpn_link_required"] > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no join refused: %+v", v)
+		}
+	}
+	if v.Policy != "link" || v.Fail != "open" || !v.Held || len(v.Lists) != 1 || v.Lists[0].Ranges != 1 ||
+		v.Newest() == 0 || len(v.Refused) != 5 {
+		t.Errorf("%+v", v)
+	}
+	check, err := admin.CheckVPN(ctx, "198.51.100.7")
+	if err != nil || !check.Listed || check.By != "netlist" {
+		t.Errorf("%+v %v", check, err)
+	}
+	if check, err := admin.CheckVPN(ctx, "203.0.113.7"); err != nil || check.Listed || check.By != "" {
+		t.Errorf("%+v %v", check, err)
+	}
+	_, err = admin.CheckVPN(ctx, "2001:db8::1")
+	refused(t, err, 400, "schema")
+	events, _, err := owner.Events(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, raw := range events {
+		var e struct {
+			Event, Name, Reason, Address string
+		}
+		json.Unmarshal(raw, &e)
+		if e.Event == "join_refused" {
+			found = true
+			if e.Reason != "vpn_link_required" || e.Name == "" || !strings.HasPrefix(e.Address, "198.51.100.") {
+				t.Errorf("%s", raw)
+			}
+		}
+	}
+	if !found {
+		t.Error("no join_refused event")
+	}
+	// the policy off: a live setting
+	if result, err := admin.PutSettings(ctx, map[string]any{"server.vpn_policy": "off"}); err != nil || len(result.Applied) != 1 {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if v, _ := admin.VPN(ctx); v.Policy != "off" {
+		t.Errorf("%+v", v)
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

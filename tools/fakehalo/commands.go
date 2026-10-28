@@ -22,6 +22,7 @@ var commandRoles = map[string]string{
 	"sv_next": "moderator", "sv_end_game": "moderator", "sv_rotation_set": "admin", "sv_set": "admin", "sv_name": "admin",
 	"sv_maxplayers": "admin", "sv_password": "admin", "sv_public": "admin", "sv_motd": "admin", "sv_reload": "admin",
 	"sv_restart": "owner", "quit": "owner", "exit": "owner", "sv_stop": "owner", "sv_ban_address": "admin",
+	"sv_vpn": "viewer", "sv_vpn_check": "moderator", "sv_vpn_fetch": "admin",
 }
 
 // commandError is a refusal of the API's kind.
@@ -74,7 +75,8 @@ func (g *game) commandCode(line, role, origin string) ([]string, bool, *commandE
 		}
 		return []string{"not a command of the server's: " + name}, false, &commandError{"not_found", "not a command of the server's"}
 	}
-	if (name == "sv_stop" || name == "sv_ban_address") && !options.capable {
+	if (name == "sv_stop" || name == "sv_ban_address") && !options.capable ||
+		strings.HasPrefix(name, "sv_vpn") && !vpnCapable() {
 		return []string{"unknown command " + name}, false, &commandError{"not_found", "not a command"}
 	}
 	if roles[role] < roles[needed] {
@@ -283,6 +285,25 @@ func (g *game) commandCode(line, role, origin string) ([]string, bool, *commandE
 			return []string{message}, false, &commandError{code, message}
 		}
 		return []string{message}, false, nil
+	case "sv_vpn":
+		g.mu.Lock()
+		v := g.vpnJSON()
+		g.mu.Unlock()
+		return []string{fmt.Sprintf("vpn policy %s, fail %s, held %v, lists %d, refused %v", v["policy"], v["fail"], v["held"],
+			len(v["lists"].([]map[string]any)), v["refused"])}, true, nil
+	case "sv_vpn_check":
+		if len(w) < 2 {
+			return []string{"sv_vpn_check <address>"}, false, nil
+		}
+		g.mu.Lock()
+		listed, by := g.vpnCheck(w[1])
+		g.mu.Unlock()
+		if !listed {
+			return []string{w[1] + " is not refused " + by}, true, nil
+		}
+		return []string{w[1] + " is refused (" + by + ")"}, true, nil
+	case "sv_vpn_fetch":
+		return []string{"fetching the masters' netlists"}, true, nil
 	case "sv_reload":
 		g.reload()
 		return []string{"reloaded"}, true, nil

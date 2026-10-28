@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -406,6 +407,24 @@ func (g *game) api(w http.ResponseWriter, r *http.Request, s *session, path stri
 			applied = append(applied, name)
 		}
 		answer(w, 200, map[string]any{"ok": true, "applied": applied, "errors": errs})
+	case path == "/api/vpn" && r.Method == http.MethodGet && vpnCapable():
+		g.mu.Lock()
+		vpn := g.vpnJSON()
+		g.mu.Unlock()
+		answer(w, 200, vpn)
+	case path == "/api/vpn/check" && r.Method == http.MethodPost && vpnCapable():
+		if !need(w, s, "moderator") {
+			return
+		}
+		ip := text(body, "ip")
+		if a, err := netip.ParseAddr(ip); err != nil || !a.Is4() {
+			fail(w, 400, "schema", "ip is an IPv4 address", nil)
+			return
+		}
+		g.mu.Lock()
+		listed, by := g.vpnCheck(ip)
+		g.mu.Unlock()
+		answer(w, 200, map[string]any{"ok": true, "listed": listed, "by": by})
 	case path == "/api/log":
 		after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
 		g.ringMu.Lock()

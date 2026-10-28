@@ -24,6 +24,23 @@ func (q *Queries) CloseOpenGames(ctx context.Context, arg CloseOpenGamesParams) 
 	return err
 }
 
+const countEventsSince = `-- name: CountEventsSince :one
+SELECT count(*) FROM events WHERE slug = ? AND type = ? AND time >= ?
+`
+
+type CountEventsSinceParams struct {
+	Slug string
+	Type string
+	Time int64
+}
+
+func (q *Queries) CountEventsSince(ctx context.Context, arg CountEventsSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEventsSince, arg.Slug, arg.Type, arg.Time)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countGames = `-- name: CountGames :one
 SELECT count(*) FROM games WHERE slug = ? AND ended IS NOT NULL
 `

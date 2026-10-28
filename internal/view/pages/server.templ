@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"time"
+
 	"github.com/OpenCommunityEdition/opence-fleet/internal/agentproto"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
@@ -33,6 +35,18 @@ type ServerView struct {
 	Channels     []string
 	Online       bool
 	Tab          string
+	// the VPN policy's card (the overview's, for a server with the vpn
+	// capability; nil otherwise)
+	VPN *VPNView
+}
+
+// VPNView is a server's VPN policy as it answered (GET /api/vpn), and its
+// refusals the fleet kept.
+type VPNView struct {
+	Status      *serverapi.VPN
+	Problem     string
+	RefusedHour int64
+	Now         time.Time
 }
 
 // SettingLine is a setting on the Settings tab.
@@ -317,6 +331,9 @@ templ ServerOverview(p view.Page, v ServerView) {
 						}
 					}
 				}
+				if v.VPN != nil {
+					@VPNCard(p, v)
+				}
 				<div class="rounded-lg border border-line bg-panel p-5">
 					<h2 class="text-base font-semibold">Feed</h2>
 					@parts.Feed(v.Feed, "feed:"+v.Instance.Slug, "Nothing yet.")
@@ -324,6 +341,89 @@ templ ServerOverview(p view.Page, v ServerView) {
 			</div>
 		</div>
 	}
+}
+
+// VPNCard is the server's VPN policy: the policy, the lists it holds, its
+// refusals, and a moderator's check of an address.
+templ VPNCard(p view.Page, v ServerView) {
+	@parts.Card("VPN", "Joins from a VPN's, a Tor exit's or a datacenter's address, as its masters' netlists say.") {
+		@parts.Pad() {
+			if v.VPN.Problem != "" {
+				<p class="text-sm text-muted">{ v.VPN.Problem }</p>
+			} else if s := v.VPN.Status; s != nil {
+				@parts.KV() {
+					@parts.Item("Policy") {
+						{ s.Policy } <span class="text-muted">· { vpnPolicyWords(s.Policy) }</span>
+					}
+					@parts.Item("Without a list") {
+						{ s.Fail } <span class="text-muted">· { vpnFailWords(s.Fail) }</span>
+					}
+					@parts.Item("Lists") {
+						if s.Held {
+							@parts.Badge(view.OK, "held")
+						} else {
+							@parts.Badge(view.Warn, "none held")
+						}
+						if s.File != "" {
+							<span class="mt-1 block text-xs text-muted">the file { s.File } (server.vpn_list)</span>
+						}
+						for _, l := range s.Lists {
+							<span class="mt-1 block text-xs">
+								<span class="text-muted">{ firstOf(l.Master, "a list") }</span>
+								· serial { view.I64(l.Serial) } · { view.Count(l.Ranges, "range", "ranges") }
+								if l.Generated > 0 {
+									· made { view.Since(time.Unix(l.Generated, 0), v.VPN.Now) }
+								}
+								if l.Fetched != nil {
+									· fetched { view.Since(time.Unix(*l.Fetched, 0), v.VPN.Now) }
+								}
+								if l.Error != "" {
+									<span class="block text-bad">{ l.Error }</span>
+								}
+							</span>
+						}
+						if s.AllowRanges > 0 || s.BlockRanges > 0 {
+							<span class="mt-1 block text-xs text-muted">vpn_allow.txt { view.Count(s.AllowRanges, "range", "ranges") } · vpn_block.txt { view.Count(s.BlockRanges, "range", "ranges") }</span>
+						}
+					}
+					@parts.Item("Refused") {
+						<span class="tabular-nums">{ view.I64(v.VPN.RefusedHour) }</span> <span class="text-muted">in the last hour</span>
+						for _, reason := range view.Sorted(s.Refused) {
+							if s.Refused[reason] > 0 {
+								<span class="mt-1 block text-xs text-muted"><span class="tabular-nums">{ view.Itoa(s.Refused[reason]) }</span> { core.RefusalWords(reason) } <span class="text-faint">since it started</span></span>
+							}
+						}
+					}
+				}
+				if p.Can("moderator") {
+					<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/vpn/check") } class="mt-4 flex gap-2 border-t border-line pt-4">
+						@parts.CSRF(p.CSRF)
+						<input name="ip" class={ view.Input } inputmode="decimal" placeholder="203.0.113.5" aria-label="An IPv4 address to check" required/>
+						<button type="submit" class={ view.Secondary }>Check</button>
+					</form>
+				}
+			}
+		}
+	}
+}
+
+func vpnPolicyWords(policy string) string {
+	switch policy {
+	case "link":
+		return "refused unless they show a linked Discord account"
+	case "block":
+		return "refused, linked or not"
+	case "off":
+		return "let in"
+	}
+	return ""
+}
+
+func vpnFailWords(fail string) string {
+	if fail == "closed" {
+		return "until it holds one, joins from the internet are refused"
+	}
+	return "until it holds one, every machine is let in"
 }
 
 // ServerEdit is the server's own settings: name, profile, release, key,

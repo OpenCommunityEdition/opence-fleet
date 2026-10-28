@@ -63,9 +63,9 @@ reach a server.
 | `POST /api/v1/instances/{slug}/drain` | admin | `{"after": "game"\|"empty"\|"now", "notice": "…", "deadline": "30m", "restart": true}` |
 | `POST /api/v1/instances/{slug}/command` | moderator | `{"line": "sv_status"}` → `{"lines": […]}` (the owner's console for an admin, the RCON's role otherwise) |
 | `POST /api/v1/instances/{slug}/say` | moderator | `{"text": "…"}` |
-| `ANY /api/v1/instances/{slug}/server/{path}` | viewer (GET), moderator (players, say, rotation next/play), admin (the rest; bans and settings always) | the server's own API (`/api/{path}`), relayed through its node's agent |
+| `ANY /api/v1/instances/{slug}/server/{path}` | viewer (GET), moderator (players, say, rotation next/play, `vpn/check`), admin (the rest; bans and settings always) | the server's own API (`/api/{path}`), relayed through its node's agent (`vpn`: its VPN policy and lists, with the `vpn` capability) |
 | `GET /api/v1/instances/{slug}/log` | viewer | the server's log lines (`?after=&limit=`) |
-| `GET /api/v1/instances/{slug}/events` | viewer | its events as the fleet kept them |
+| `GET /api/v1/instances/{slug}/events` | viewer | its events as the fleet kept them (players' addresses and hardware ids for admins, their Discord accounts for moderators) |
 | `GET /api/v1/instances/{slug}/games` | viewer | its games: map, gametype, players, scores |
 | `GET /api/v1/profiles` | viewer | profiles |
 | `POST /api/v1/profiles`, `PUT /api/v1/profiles/{id}` | admin | make or change a profile (`name`, `description`, `settings`, `rotation`, `region`, `init_txt`, `channel`, `password_policy`, `key_id`) |

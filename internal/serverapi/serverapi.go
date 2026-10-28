@@ -584,11 +584,13 @@ type VPNList struct {
 	Error   string `json:"error"`
 }
 
-// Newest is the newest list's generation time (0: none).
+// Newest is the newest of the masters' lists' generation times (0: none).
 func (v *VPN) Newest() int64 {
 	var newest int64
 	for _, l := range v.Lists {
-		newest = max(newest, l.Generated)
+		if l.Master != "" {
+			newest = max(newest, l.Generated)
+		}
 	}
 	return newest
 }

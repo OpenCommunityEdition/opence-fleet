@@ -116,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	form("POST /servers/{slug}/players/{slot}/{action}", auth.Moderator, s.playerAction)
 	form("POST /servers/{slug}/bans/{n}/delete", auth.Admin, s.serverUnban)
 	form("POST /servers/{slug}/command", auth.Moderator, s.serverCommand)
+	form("POST /servers/{slug}/vpn/check", auth.Moderator, s.serverVPNCheck)
 	form("POST /servers/{slug}/groups", auth.Admin, s.serverGroups)
 	mux.Handle("GET /ws/console/{slug}", s.gate(auth.Moderator, http.HandlerFunc(s.console)))
 

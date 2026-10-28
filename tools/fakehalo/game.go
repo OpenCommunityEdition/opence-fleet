@@ -147,6 +147,8 @@ type game struct {
 	webPort     int
 	frameMax    float64
 	lastHealth  time.Time
+	// the joins refused for the VPN policy, by reason, since the start
+	refused map[string]int
 }
 
 type drainState struct {
@@ -425,6 +427,9 @@ func capabilities() []string {
 	list := []string{"events", "status", "rotation", "settings", "bans"}
 	if options.capable {
 		list = append(list, "owner_web", "ban_address", "stop", "event_addresses", "identity")
+	}
+	if vpnCapable() {
+		list = append(list, "vpn")
 	}
 	if linkCapable() {
 		list = append(list, "link")
@@ -747,13 +752,21 @@ func (g *game) join() {
 	address := fmt.Sprintf("203.0.113.%d", 10+m%200)
 	hwid := fmt.Sprintf("%016x", 0xfeed0000+m)
 	name := names[(m-1)%len(names)]
-	// the script's Discord accounts, a machine in four each: none; a pass
-	// (verified where the server takes passes); the machine's own word; a
-	// pass again
+	// the script's machines, a machine in four each: no Discord account; a
+	// pass (verified where the server takes passes); a VPN's address and the
+	// machine's own word of an account, no pass; a VPN's address and a pass
+	pass := m%2 == 0
+	if vpnCapable() && (m%4 == 3 || m%4 == 0) {
+		address = fmt.Sprintf("198.51.100.%d", 10+m%200)
+	}
 	p := &player{Slot: slot, Name: name, Machine: m, Address: address, HWID: hwid, Joined: time.Now().Unix()}
 	if linkCapable() && m%4 != 1 {
 		p.DiscordID, p.DiscordName = discordID(m), strings.ToLower(name)
-		p.DiscordVerified = m%2 == 0 && g.takesPasses()
+		p.DiscordVerified = pass && g.takesPasses()
+	}
+	if reason := g.door(p, pass); reason != "" {
+		g.refuse(p, reason)
+		return
 	}
 	for _, b := range g.bans {
 		if (b.IP != "" && b.IP == address) || (b.HWID != "" && b.HWID == hwid) ||
@@ -777,19 +790,28 @@ func (g *game) join() {
 // emitPlayer sends a player's event, with the address to those who may
 // read it (7.4).
 func (g *game) emitPlayer(name string, fields map[string]any, p *player) {
+	private := map[string]any{"address": p.Address, "hwid": p.HWID}
+	if name == "player_joined" && linkCapable() {
+		private["discord_id"], private["discord_name"], private["discord_verified"] = p.DiscordID, p.DiscordName, p.DiscordVerified
+	}
+	g.emitPrivate("player", name, fields, private)
+}
+
+// emitPrivate sends an event whose private fields go to those who may read
+// the addresses (call with g.mu held).
+func (g *game) emitPrivate(group, name string, fields, private map[string]any) {
 	g.seq++
 	data := map[string]any{"type": "event", "seq": g.seq, "time": time.Now().UnixMilli(), "event": name}
 	for k, v := range fields {
 		data[k] = v
 	}
-	private := map[string]any{"address": p.Address, "hwid": p.HWID}
-	if name == "player_joined" && linkCapable() {
-		private["discord_id"], private["discord_name"], private["discord_verified"] = p.DiscordID, p.DiscordName, p.DiscordVerified
-	}
-	e := event{Seq: g.seq, Group: "player", Data: data, Private: private}
+	e := event{Seq: g.seq, Group: group, Data: data, Private: private}
 	g.events = append(g.events, e)
+	if len(g.events) > 512 {
+		g.events = g.events[len(g.events)-512:]
+	}
 	for _, r := range g.subscriberList() {
-		go r.event("player", g.view(e, r.role))
+		go r.event(group, g.view(e, r.role))
 	}
 }
 

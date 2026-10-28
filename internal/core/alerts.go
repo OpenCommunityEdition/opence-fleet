@@ -34,6 +34,7 @@ var Rules = []struct{ ID, Name string }{
 	{"speed_hack", "A speed hack"},
 	{"update_failed", "An update that did not come up"},
 	{"update_rolled_back", "A server put back on its build, pinned, after an update that did not come up"},
+	{"vpn_list", "A server without a current VPN list (none for 2 hours, or all over 48 hours old)"},
 }
 
 // RuleName is a rule's words.
@@ -364,7 +365,11 @@ func (f *Fleet) evaluate(ctx context.Context) {
 		if l.Status == nil {
 			f.holds("probe:"+slug, false, now, 0)
 			f.holds("frame:"+slug, false, now, 0)
+			f.holds("vpn:"+slug, false, now, 0)
 			continue
+		}
+		if l.Has("vpn") {
+			f.pollVPN(slug, now)
 		}
 		failing := ""
 		for _, m := range l.Status.Masters {

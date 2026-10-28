@@ -292,7 +292,7 @@ func (s *Server) apiPassthrough(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		need = auth.Admin
 		if strings.HasPrefix(path, "/api/players/") || path == "/api/say" || path == "/api/rotation/next" ||
-			path == "/api/rotation/play" {
+			path == "/api/rotation/play" || path == "/api/vpn/check" {
 			need = auth.Moderator
 		}
 	}

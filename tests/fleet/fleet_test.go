@@ -421,6 +421,56 @@ func TestFleet(t *testing.T) {
 		}
 	})
 
+	t.Run("the VPN policy: its card, a live change, a refusal", func(t *testing.T) {
+		h.until("btb-2 up with the vpn capability", 20*time.Second, func() bool {
+			l := h.fleet.Live.Instance("btb-2")
+			return h.up("btb-2") && l.Has("vpn") && l.Has("link")
+		})
+		// (fakehalo publishes nowhere here: it holds no netlist, and lets
+		// every machine in, as server.vpn_fail open says)
+		_, body := h.page(h.cookie, "/servers/btb-2")
+		for _, want := range []string{">VPN<", "none held", "in the last hour", `action="/servers/btb-2/vpn/check"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the VPN card has no %q", want)
+			}
+		}
+		if err := h.fleet.SetOverride(ctx, "user:paul", "btb-2", "server.vpn_fail", "closed"); err != nil {
+			t.Fatal(err)
+		}
+		h.until("vpn_fail closed, live", 15*time.Second, func() bool {
+			v, err := h.fleet.VPN(ctx, "btb-2")
+			return err == nil && v.Fail == "closed" && !v.Held
+		})
+		if l := h.fleet.Live.Instance("btb-2"); l.RestartNeeded {
+			t.Fatal("server.vpn_fail needs a restart")
+		}
+		// a player kicked: the next machine is refused at the door
+		since := time.Now().Add(-time.Second)
+		players, err := h.fleet.Players(ctx, "btb-2")
+		if err != nil || len(players) == 0 {
+			t.Fatal(players, err)
+		}
+		if err := h.fleet.Call(ctx, "btb-2", http.MethodPost, fmt.Sprintf("/api/players/%d/kick", players[0].Slot),
+			map[string]string{"name": players[0].Name}, nil); err != nil {
+			t.Fatal(err)
+		}
+		h.until("a join refused", 20*time.Second, func() bool { return h.fleet.RefusedSince(ctx, "btb-2", since) > 0 })
+		_, body = h.page(h.cookie, "/servers/btb-2")
+		if !strings.Contains(body, "a VPN (the server blocks them)") || !strings.Contains(body, "refused at the door") {
+			t.Error("the overview shows no refusal")
+		}
+		check, err := h.fleet.CheckVPN(ctx, "btb-2", "198.51.100.13")
+		if err != nil || check.Listed {
+			t.Fatalf("%+v %v", check, err)
+		}
+		if _, err := h.fleet.CheckVPN(ctx, "btb-2", "not an address"); err == nil {
+			t.Fatal("a check of no address passed")
+		}
+		if err := h.fleet.SetOverride(ctx, "user:paul", "btb-2", "server.vpn_fail", nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("every page, for every role", func(t *testing.T) {
 		viewerToken := h.user(t, auth.Viewer)
 		for _, path := range []string{"/", "/servers", "/servers/new", "/servers/btb-1", "/servers/btb-1/players",
@@ -436,7 +486,7 @@ func TestFleet(t *testing.T) {
 			if status >= 500 {
 				t.Errorf("viewer %s: %d", path, status)
 			}
-			if strings.Contains(body, "203.0.113.") {
+			if strings.Contains(body, "203.0.113.") || strings.Contains(body, "198.51.100.") {
 				t.Errorf("viewer %s sees an address", path)
 			}
 		}

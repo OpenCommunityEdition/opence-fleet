@@ -63,6 +63,8 @@ type Fleet struct {
 	crashes *crashTimes
 	events  *eventWriter
 	lasting *lastingConditions
+	// when each server's VPN lists were last asked (the vpn_list alert)
+	vpnPolls *vpnPolls
 }
 
 // Error is a refusal a person reads: its code (for scripts) and words.
@@ -96,8 +98,9 @@ func New(s *store.Store, key *crypt.Key, c *config.ServeConfig, log *slog.Logger
 	f := &Fleet{Store: s, Key: key, Config: c, Log: log, Live: l, Now: time.Now,
 		HTTP: &http.Client{Timeout: 30 * time.Second}, pushTimer: map[int64]*time.Timer{}, games: map[string]int64{},
 		owners: &owners{nodes: map[string]int64{}}, crashes: &crashTimes{at: map[string][]time.Time{}},
-		events:  &eventWriter{ch: make(chan db.InsertEventParams, 8192)},
-		lasting: &lastingConditions{since: map[string]time.Time{}}}
+		events:   &eventWriter{ch: make(chan db.InsertEventParams, 8192)},
+		lasting:  &lastingConditions{since: map[string]time.Time{}},
+		vpnPolls: &vpnPolls{at: map[string]time.Time{}}}
 	f.Hub = hub.New(f, log.With("part", "hub"))
 	f.jobs = newJobRunner(f)
 	f.PublicURL = c.PublicURL

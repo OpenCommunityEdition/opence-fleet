@@ -49,3 +49,6 @@ SELECT * FROM instance_samples WHERE slug = ? AND time >= ? ORDER BY time;
 
 -- name: PruneSamples :exec
 DELETE FROM instance_samples WHERE time < ?;
+
+-- name: CountEventsSince :one
+SELECT count(*) FROM events WHERE slug = ? AND type = ? AND time >= ?;

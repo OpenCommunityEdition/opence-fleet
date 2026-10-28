@@ -112,6 +112,9 @@ func (s *Server) serverPage(w http.ResponseWriter, r *http.Request) {
 	switch tab {
 	case "overview":
 		page.Live = true
+		if l := s.Fleet.Live.Instance(slug); l != nil && l.Has("vpn") {
+			v.VPN = s.vpnView(ctx, slug)
+		}
 		s.render(w, r, http.StatusOK, pages.ServerOverview(page, v))
 	case "players":
 		players, problem := s.players(ctx, slug)
@@ -185,6 +188,41 @@ func (s *Server) serverPage(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.render(w, r, http.StatusNotFound, s.errorPage(r, "No such tab", ""))
 	}
+}
+
+// vpnView is the VPN card's: the server's answer (a few seconds at most:
+// the page does not wait on a node) and the refusals of the last hour.
+func (s *Server) vpnView(ctx context.Context, slug string) *pages.VPNView {
+	now := s.Fleet.Now()
+	v := &pages.VPNView{Now: now, RefusedHour: s.Fleet.RefusedSince(ctx, slug, now.Add(-time.Hour))}
+	call, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	status, err := s.Fleet.VPN(call, slug)
+	if err != nil {
+		v.Problem = "The server did not answer (" + err.Error() + "): its VPN lists show once it does."
+		return v
+	}
+	v.Status = status
+	return v
+}
+
+// serverVPNCheck asks the server whether it refuses an address as a VPN's.
+func (s *Server) serverVPNCheck(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	ip := strings.TrimSpace(r.FormValue("ip"))
+	answer, err := s.Fleet.CheckVPN(r.Context(), slug, ip)
+	if err != nil {
+		s.fail(w, r, "/servers/"+slug, err)
+		return
+	}
+	notice := ip + " is not refused as a VPN's."
+	switch {
+	case answer.Listed:
+		notice = ip + " is refused as a VPN's (" + answer.By + ")."
+	case answer.By == "vpn_allow.txt":
+		notice = ip + " is never refused (vpn_allow.txt)."
+	}
+	s.done(w, r, "/servers/"+slug, notice)
 }
 
 func unescape(text string) string {

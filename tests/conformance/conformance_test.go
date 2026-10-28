@@ -235,6 +235,8 @@ func TestFakeMatchesSimulator(t *testing.T) {
 		{"PUT", "/api/settings", `{"settings":{"server.max_players":"12"}}`},
 		{"PUT", "/api/settings", `{"settings":{"server.max_players":"999"}}`},
 		{"POST", "/api/bans", `{"ip":"203.0.113.9","reason":"conformance"}`},
+		{"GET", "/api/vpn", ""},
+		{"POST", "/api/vpn/check", `{"ip":"198.51.100.7"}`},
 		{"GET", "/api/nothing-here", ""},
 	}
 	for _, r := range requests {
