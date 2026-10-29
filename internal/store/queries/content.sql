@@ -55,6 +55,9 @@ UPDATE releases SET is_latest = 0;
 -- name: SetLatest :exec
 UPDATE releases SET is_latest = 1 WHERE build = ?;
 
+-- name: SetReleaseNetworkVersion :exec
+UPDATE releases SET network_version = ?, network_source = ? WHERE build = ?;
+
 -- name: DeleteRelease :exec
 DELETE FROM releases WHERE build = ?;
 

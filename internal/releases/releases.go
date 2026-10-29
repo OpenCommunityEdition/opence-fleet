@@ -252,6 +252,139 @@ func (r *Registry) Latest(ctx context.Context) (string, string, error) {
 	return digest, "", nil
 }
 
+// NetworkVersionLabel is the label the game's server image tells its
+// network version by (the game's CI adds it; older images have none).
+const NetworkVersionLabel = "org.opence.network-version"
+
+// getJSON reads one of the registry's JSON documents (a manifest, an
+// image's configuration), 4 MB at most.
+func (r *Registry) getJSON(ctx context.Context, path, accept string, out any) error {
+	response, err := r.do(ctx, http.MethodGet, path, accept)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("the registry answered %s for %s", response.Status, path)
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(out)
+}
+
+// Labels are an image's labels, from its configuration, for a tag or a
+// digest. An index (the digest a node pulls) is read through its
+// linux/amd64 image, the one the game's server runs as.
+func (r *Registry) Labels(ctx context.Context, reference string) (map[string]string, error) {
+	_, repository, _ := r.split()
+	type descriptor struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+		Platform  *struct {
+			OS           string `json:"os"`
+			Architecture string `json:"architecture"`
+		} `json:"platform"`
+	}
+	var manifest struct {
+		Manifests []descriptor `json:"manifests"`
+		Config    descriptor   `json:"config"`
+	}
+	path := "/v2/" + repository + "/manifests/"
+	if err := r.getJSON(ctx, path+url.PathEscape(reference), Accept, &manifest); err != nil {
+		return nil, err
+	}
+	if len(manifest.Manifests) > 0 {
+		chosen := ""
+		for _, m := range manifest.Manifests {
+			// (an attestation's platform is unknown/unknown)
+			if m.Platform == nil || m.Platform.OS != "linux" {
+				continue
+			}
+			if m.Platform.Architecture == "amd64" || chosen == "" {
+				chosen = m.Digest
+			}
+			if m.Platform.Architecture == "amd64" {
+				break
+			}
+		}
+		if chosen == "" {
+			return nil, fmt.Errorf("%s:%s has no linux image", r.Image, reference)
+		}
+		manifest.Manifests = nil
+		if err := r.getJSON(ctx, path+chosen, Accept, &manifest); err != nil {
+			return nil, err
+		}
+	}
+	if !strings.HasPrefix(manifest.Config.Digest, "sha256:") {
+		return nil, fmt.Errorf("%s:%s names no configuration", r.Image, reference)
+	}
+	var config struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"config"`
+	}
+	if err := r.getJSON(ctx, "/v2/"+repository+"/blobs/"+manifest.Config.Digest, "", &config); err != nil {
+		return nil, err
+	}
+	if config.Config.Labels == nil {
+		config.Config.Labels = map[string]string{}
+	}
+	return config.Config.Labels, nil
+}
+
+// LabelNetworkVersion is the network version an image's labels tell (0:
+// none, or not a number).
+func LabelNetworkVersion(labels map[string]string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(labels[NetworkVersionLabel]))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+var notesNetworkVersion = regexp.MustCompile(`(?mi)^[ \t]*network version:[ \t]*(\d+)[ \t]*\r?$`)
+
+// NotesNetworkVersion is the network version a release's notes tell, by
+// the line the game's CI writes into each release ("Network version: 39");
+// 0 when there is none.
+func NotesNetworkVersion(notes string) int {
+	m := notesNetworkVersion.FindStringSubmatch(notes)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+// GitHubAPI is GitHub's API (a test's server instead).
+var GitHubAPI = "https://api.github.com"
+
+// Notes is a GitHub release's notes (its body), by its tag.
+func Notes(ctx context.Context, client *http.Client, repository, tag string) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		GitHubAPI+"/repos/"+repository+"/releases/tags/"+url.PathEscape(tag), nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub answered %s for the release %s of %s", response.Status, tag, repository)
+	}
+	var release struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&release); err != nil {
+		return "", err
+	}
+	return release.Body, nil
+}
+
 // ZipURL is a release's halo-linux-release.zip on GitHub.
 func ZipURL(repository, build string) string {
 	return "https://github.com/" + repository + "/releases/download/" + url.PathEscape(build) + "/halo-linux-release.zip"

@@ -236,17 +236,19 @@ type PublisherKey struct {
 }
 
 type Release struct {
-	Build      string
-	Image      string
-	Digest     string
-	ZipUrl     string
-	ZipSha256  string
-	ZipSize    int64
-	ResolvedAt int64
-	Url        string
-	NotesUrl   string
-	IsLatest   int64
-	Local      int64
+	Build          string
+	Image          string
+	Digest         string
+	ZipUrl         string
+	ZipSha256      string
+	ZipSize        int64
+	ResolvedAt     int64
+	Url            string
+	NotesUrl       string
+	IsLatest       int64
+	Local          int64
+	NetworkVersion int64
+	NetworkSource  string
 }
 
 type Schedule struct {

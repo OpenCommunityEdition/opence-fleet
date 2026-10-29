@@ -209,7 +209,7 @@ func (q *Queries) GetKey(ctx context.Context, keyID string) (PublisherKey, error
 }
 
 const getLatestRelease = `-- name: GetLatestRelease :one
-SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local FROM releases WHERE is_latest = 1 LIMIT 1
+SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local, network_version, network_source FROM releases WHERE is_latest = 1 LIMIT 1
 `
 
 func (q *Queries) GetLatestRelease(ctx context.Context) (Release, error) {
@@ -227,6 +227,8 @@ func (q *Queries) GetLatestRelease(ctx context.Context) (Release, error) {
 		&i.NotesUrl,
 		&i.IsLatest,
 		&i.Local,
+		&i.NetworkVersion,
+		&i.NetworkSource,
 	)
 	return i, err
 }
@@ -275,7 +277,7 @@ func (q *Queries) GetLibraryByName(ctx context.Context, arg GetLibraryByNamePara
 }
 
 const getRelease = `-- name: GetRelease :one
-SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local FROM releases WHERE build = ?
+SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local, network_version, network_source FROM releases WHERE build = ?
 `
 
 func (q *Queries) GetRelease(ctx context.Context, build string) (Release, error) {
@@ -293,6 +295,8 @@ func (q *Queries) GetRelease(ctx context.Context, build string) (Release, error)
 		&i.NotesUrl,
 		&i.IsLatest,
 		&i.Local,
+		&i.NetworkVersion,
+		&i.NetworkSource,
 	)
 	return i, err
 }
@@ -425,7 +429,7 @@ func (q *Queries) ListOldUploads(ctx context.Context, createdAt int64) ([]Upload
 }
 
 const listReleases = `-- name: ListReleases :many
-SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local FROM releases ORDER BY resolved_at DESC
+SELECT build, image, digest, zip_url, zip_sha256, zip_size, resolved_at, url, notes_url, is_latest, local, network_version, network_source FROM releases ORDER BY resolved_at DESC
 `
 
 func (q *Queries) ListReleases(ctx context.Context) ([]Release, error) {
@@ -449,6 +453,8 @@ func (q *Queries) ListReleases(ctx context.Context) ([]Release, error) {
 			&i.NotesUrl,
 			&i.IsLatest,
 			&i.Local,
+			&i.NetworkVersion,
+			&i.NetworkSource,
 		); err != nil {
 			return nil, err
 		}
@@ -478,6 +484,21 @@ UPDATE releases SET is_latest = 1 WHERE build = ?
 
 func (q *Queries) SetLatest(ctx context.Context, build string) error {
 	_, err := q.db.ExecContext(ctx, setLatest, build)
+	return err
+}
+
+const setReleaseNetworkVersion = `-- name: SetReleaseNetworkVersion :exec
+UPDATE releases SET network_version = ?, network_source = ? WHERE build = ?
+`
+
+type SetReleaseNetworkVersionParams struct {
+	NetworkVersion int64
+	NetworkSource  string
+	Build          string
+}
+
+func (q *Queries) SetReleaseNetworkVersion(ctx context.Context, arg SetReleaseNetworkVersionParams) error {
+	_, err := q.db.ExecContext(ctx, setReleaseNetworkVersion, arg.NetworkVersion, arg.NetworkSource, arg.Build)
 	return err
 }
 

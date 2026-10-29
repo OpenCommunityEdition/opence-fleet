@@ -59,3 +59,16 @@ func clientTitle(c *serverapi.ClientBuild) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// networkSource is where a release's network version was read.
+func networkSource(source string) string {
+	switch source {
+	case "label":
+		return "the image's label"
+	case "notes":
+		return "the release's notes"
+	case "server":
+		return "its servers"
+	}
+	return source
+}

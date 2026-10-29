@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"fmt"
+
 	"github.com/OpenCommunityEdition/opence-fleet/internal/master"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
@@ -140,7 +142,7 @@ templ Releases(p view.Page, releases []ReleaseLine, image string, latest string,
 					<p class="px-4 py-8 text-center text-sm text-muted">No release known yet: latest is resolved a minute after the start, then every 6 hours. Fetch a tag, or name an image the nodes have (a build of your own).</p>
 				} else {
 					<table class="w-full text-sm">
-						<thead><tr><th class={ view.Th }>Build</th><th class={ view.Th }>Image</th><th class={ view.Th }>Zip</th><th class={ view.Th }>Runs on</th><th class={ view.Th }>Resolved</th><th class={ view.Th }></th></tr></thead>
+						<thead><tr><th class={ view.Th }>Build</th><th class={ view.Th }>Image</th><th class={ view.Th }>Zip</th><th class={ view.Th }>Network</th><th class={ view.Th }>Runs on</th><th class={ view.Th }>Resolved</th><th class={ view.Th }></th></tr></thead>
 						<tbody>
 							for _, r := range releases {
 								<tr class={ view.Tr }>
@@ -164,6 +166,13 @@ templ Releases(p view.Page, releases []ReleaseLine, image string, latest string,
 											{ view.Bytes(r.ZipSize) } <span class="font-mono text-faint">{ view.Short(r.ZipSha256, 10) }</span>
 										} else if p.Can("admin") {
 											@parts.Post("/releases/"+r.Build+"/zip", "Fetch the zip", view.Secondary+view.Small, p.CSRF)
+										}
+									</td>
+									<td class={ view.Td + " text-xs text-muted" }>
+										if r.NetworkVersion > 0 {
+											{ fmt.Sprint(r.NetworkVersion) } <span class="text-faint" title="where the network version was read">{ networkSource(r.NetworkSource) }</span>
+										} else {
+											<span class="text-faint" title="not known yet: read from the first server that runs it">unknown</span>
 										}
 									</td>
 									<td class={ view.Td + " text-xs text-muted" }>{ view.Count(len(r.Running), "server", "servers") }</td>

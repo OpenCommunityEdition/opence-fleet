@@ -94,7 +94,11 @@ func (f *Fleet) Report(node int64, kind string, data []byte) {
 		if json.Unmarshal(data, &s) != nil || refuse(s.Slug) {
 			return
 		}
-		f.Live.SetStatus(node, s.Slug, s.Status)
+		if _, status := f.Live.SetStatus(node, s.Slug, s.Status); status != nil {
+			if l := f.Live.Instance(s.Slug); l != nil {
+				f.learnFromServer(l.Build, status)
+			}
+		}
 	case agentproto.TEvent:
 		var e agentproto.Event
 		if json.Unmarshal(data, &e) != nil || refuse(e.Slug) {

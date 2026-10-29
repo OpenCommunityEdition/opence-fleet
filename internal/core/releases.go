@@ -38,6 +38,7 @@ func (f *Fleet) CheckLatest(ctx context.Context, actor string) (db.Release, bool
 	if err := f.upsertRelease(ctx, tag, digest, true); err != nil {
 		return db.Release{}, false, err
 	}
+	f.learnNetworkVersion(ctx, tag, digest)
 	moved := previous.Build != tag
 	if moved {
 		f.Audit(ctx, actor, "release.latest", tag, map[string]string{"digest": digest, "was": previous.Build})
@@ -84,6 +85,7 @@ func (f *Fleet) FetchRelease(ctx context.Context, actor, tag string) error {
 	if err := f.upsertRelease(ctx, tag, digest, false); err != nil {
 		return err
 	}
+	f.learnNetworkVersion(ctx, tag, digest)
 	f.Audit(ctx, actor, "release.fetch", tag, map[string]string{"digest": digest})
 	return nil
 }

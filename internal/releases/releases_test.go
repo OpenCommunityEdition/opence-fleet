@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +30,9 @@ type registry struct {
 	brokenTags bool
 	// the registry refuses every token
 	refuse bool
+	// GET's documents by the path after the repository's (manifests/<ref>,
+	// blobs/<digest>)
+	documents map[string]string
 
 	mu       sync.Mutex
 	tokens   int
@@ -77,6 +81,8 @@ func (g *registry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			tags = g.pages[page]
 		}
 		json.NewEncoder(w).Encode(map[string]any{"name": g.repository, "tags": tags})
+	case r.Method == http.MethodGet && g.documents[strings.TrimPrefix(r.URL.Path, prefix)] != "":
+		io.WriteString(w, g.documents[strings.TrimPrefix(r.URL.Path, prefix)])
 	case strings.HasPrefix(r.URL.Path, prefix+"manifests/"):
 		if r.Method != http.MethodHead {
 			http.Error(w, "HEAD only", http.StatusMethodNotAllowed)
@@ -359,5 +365,72 @@ func TestDownload(t *testing.T) {
 	cancel()
 	if _, _, err := Download(ctx, server.Client(), source, filepath.Join(dir, "cancelled.zip")); err == nil {
 		t.Error("a cancelled download: no error")
+	}
+}
+
+func TestLabels(t *testing.T) {
+	config := `{"architecture":"amd64","config":{"Labels":{"org.opence.network-version":"39","org.opencontainers.image.version":"build-900"}}}`
+	g := &registry{manifests: map[string]string{}, documents: map[string]string{
+		// an index: an attestation, arm64 first, then amd64
+		"manifests/build-900": `{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[
+			{"digest":"` + sha(7) + `","platform":{"os":"unknown","architecture":"unknown"}},
+			{"digest":"` + sha(6) + `","platform":{"os":"linux","architecture":"arm64"}},
+			{"digest":"` + sha(5) + `","platform":{"os":"linux","architecture":"amd64"}}]}`,
+		"manifests/" + sha(5): `{"config":{"digest":"` + sha(4) + `"}}`,
+		"manifests/" + sha(6): `{"config":{"digest":"` + sha(3) + `"}}`,
+		"blobs/" + sha(4):     config,
+		"blobs/" + sha(3):     `{"config":{"Labels":{"org.opence.network-version":"1"}}}`,
+		// an image of one platform, without the label (an older build)
+		"manifests/build-800": `{"config":{"digest":"` + sha(2) + `"}}`,
+		"blobs/" + sha(2):     `{"config":{"Labels":null}}`,
+	}}
+	r := fake(t, g)
+	labels, err := r.Labels(context.Background(), "build-900")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := LabelNetworkVersion(labels); n != 39 {
+		t.Fatalf("network version %d from %v, not amd64's 39", n, labels)
+	}
+	labels, err = r.Labels(context.Background(), "build-800")
+	if err != nil || LabelNetworkVersion(labels) != 0 {
+		t.Fatalf("an image without the label: %v %v", labels, err)
+	}
+	if _, err := r.Labels(context.Background(), "build-1"); err == nil {
+		t.Fatal("a missing manifest gave labels")
+	}
+	for text, want := range map[string]int{"39": 39, " 40 ": 40, "": 0, "x": 0, "-3": 0, "0": 0} {
+		if n := LabelNetworkVersion(map[string]string{NetworkVersionLabel: text}); n != want {
+			t.Errorf("label %q: %d, want %d", text, n, want)
+		}
+	}
+}
+
+func TestNotesNetworkVersion(t *testing.T) {
+	body := "Halo for Linux.\n\nCommit: abc\nBuild: 900\nNetwork version: 39\n\nThe release builds are for playing."
+	for notes, want := range map[string]int{
+		body: 39, "network version: 7\r\n": 7, "  Network version:  12  ": 12,
+		"": 0, "Network version: soon": 0, "the network version: 39 is new": 0, "Network version: 0": 0,
+	} {
+		if n := NotesNetworkVersion(notes); n != want {
+			t.Errorf("%q: %d, want %d", notes, n, want)
+		}
+	}
+	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/x/y/releases/tags/build-900" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"tag_name": "build-900", "body": body})
+	}))
+	defer github.Close()
+	defer func(api string) { GitHubAPI = api }(GitHubAPI)
+	GitHubAPI = github.URL
+	notes, err := Notes(context.Background(), github.Client(), "x/y", "build-900")
+	if err != nil || NotesNetworkVersion(notes) != 39 {
+		t.Fatalf("%q %v", notes, err)
+	}
+	if _, err := Notes(context.Background(), github.Client(), "x/y", "build-1"); err == nil {
+		t.Fatal("a missing release gave notes")
 	}
 }

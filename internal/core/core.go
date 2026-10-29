@@ -65,6 +65,9 @@ type Fleet struct {
 	lasting *lastingConditions
 	// when each server's VPN lists were last asked (the vpn_list alert)
 	vpnPolls *vpnPolls
+	// the builds whose network version a server told
+	learnMu sync.Mutex
+	learnt  map[string]bool
 	// each node's network counters at its last sample (the rates)
 	netMu       sync.Mutex
 	netReadings map[int64]netReading
@@ -104,7 +107,7 @@ func New(s *store.Store, key *crypt.Key, c *config.ServeConfig, log *slog.Logger
 		owners:      &owners{nodes: map[string]int64{}}, crashes: &crashTimes{at: map[string][]time.Time{}},
 		events:   &eventWriter{ch: make(chan db.InsertEventParams, 8192)},
 		lasting:  &lastingConditions{since: map[string]time.Time{}},
-		vpnPolls: &vpnPolls{at: map[string]time.Time{}}}
+		vpnPolls: &vpnPolls{at: map[string]time.Time{}}, learnt: map[string]bool{}}
 	f.Hub = hub.New(f, log.With("part", "hub"))
 	f.jobs = newJobRunner(f)
 	f.PublicURL = c.PublicURL
