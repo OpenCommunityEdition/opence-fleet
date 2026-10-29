@@ -34,7 +34,13 @@ Authorization: Bearer <node token>
 Sec-WebSocket-Protocol: opence-fleet-agent-1
 ```
 
-Over HTTPS (or loopback). One WebSocket per node; a second connection of
+Over HTTPS (or loopback). The upgrade is HTTP/1.1's: the agent offers
+`http/1.1` alone in TLS's ALPN, so a proxy that also speaks HTTP/2 (Caddy
+by default) needs nothing of its own. (Agents of v0.1.13 and before offered
+`h2` too, which such a proxy took, failing the upgrade; until they update
+themselves, they connect through a proxy limited to HTTP/1.1 for the
+fleet's site, `servers { protocols h1 h3 }` in a Caddyfile.) One WebSocket
+per node; a second connection of
 the same node replaces the first. Text frames, one JSON object each, with
 its `type`:
 

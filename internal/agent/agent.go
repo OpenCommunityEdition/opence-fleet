@@ -213,15 +213,25 @@ func (a *Agent) websocketURL() string {
 	return u + "/agent"
 }
 
+// dialer is the WebSocket's dialer, trusting what the HTTP client trusts
+// but offering HTTP/1.1 alone: the upgrade is HTTP/1.1's, and the
+// transport's TLS configuration (which it shares no more) offers h2 too
+// once it has made a request, which a proxy that speaks HTTP/2 (Caddy by
+// default) then takes, failing the upgrade.
+func (a *Agent) dialer() *websocket.Dialer {
+	dialer := &websocket.Dialer{HandshakeTimeout: 15 * time.Second, Subprotocols: []string{agentproto.Subprotocol},
+		Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	if t, ok := a.HTTP.Transport.(*http.Transport); ok && t.TLSClientConfig != nil {
+		dialer.TLSClientConfig = t.TLSClientConfig.Clone()
+	}
+	dialer.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	return dialer
+}
+
 // session is one connection to the control plane.
 func (a *Agent) session(ctx context.Context) error {
-	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Subprotocols: []string{agentproto.Subprotocol},
-		Proxy: http.ProxyFromEnvironment}
-	if t, ok := a.HTTP.Transport.(*http.Transport); ok && t.TLSClientConfig != nil {
-		dialer.TLSClientConfig = t.TLSClientConfig
-	}
 	header := http.Header{"Authorization": {"Bearer " + a.Config.Token}}
-	conn, response, err := dialer.DialContext(ctx, a.websocketURL(), header)
+	conn, response, err := a.dialer().DialContext(ctx, a.websocketURL(), header)
 	if err != nil {
 		if response != nil {
 			return fmt.Errorf("the control plane answered %s (a forgotten node, or a token another enrolment replaced?)", response.Status)
