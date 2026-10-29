@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -89,7 +91,8 @@ func printJSON(raw json.RawMessage) {
 // client runs a command of the command line.
 // clientCommands are the command line's commands of the API.
 var clientCommands = map[string]bool{"servers": true, "nodes": true, "jobs": true, "start": true, "stop": true,
-	"restart": true, "say": true, "command": true, "update": true, "library": true, "export": true, "import": true}
+	"restart": true, "say": true, "command": true, "update": true, "library": true, "export": true, "import": true,
+	"settings": true}
 
 func client(command string, args []string) error {
 	if !clientCommands[command] {
@@ -228,6 +231,44 @@ func client(command string, args []string) error {
 			return err
 		}
 		printJSON(raw)
+	case "settings":
+		if len(rest) == 3 && rest[0] == "set" {
+			var raw json.RawMessage
+			if err := a.call(http.MethodPut, "/api/v1/settings", map[string]string{rest[1]: rest[2]}, &raw); err != nil {
+				return err
+			}
+			printJSON(raw)
+			return nil
+		}
+		if len(rest) != 0 {
+			return errors.New("usage: opence-fleet settings [set <name> <value>] (an owner's token)")
+		}
+		var raw json.RawMessage
+		if err := a.call(http.MethodGet, "/api/v1/settings", nil, &raw); err != nil {
+			return err
+		}
+		if *asJSON {
+			printJSON(raw)
+			return nil
+		}
+		var answer struct {
+			Settings map[string]string `json:"settings"`
+			Pinned   []string          `json:"pinned"`
+		}
+		json.Unmarshal(raw, &answer)
+		names := make([]string, 0, len(answer.Settings))
+		for name := range answer.Settings {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		fmt.Fprintln(w, "SETTING\tVALUE")
+		for _, name := range names {
+			value := answer.Settings[name]
+			if slices.Contains(answer.Pinned, name) {
+				value += " (set by the environment)"
+			}
+			fmt.Fprintf(w, "%s\t%s\n", name, value)
+		}
 	case "export":
 		var raw json.RawMessage
 		path := "/api/v1/export"

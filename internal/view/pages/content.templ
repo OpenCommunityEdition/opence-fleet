@@ -117,7 +117,16 @@ type ReleaseLine struct {
 }
 
 // Releases is the releases page.
-templ Releases(p view.Page, releases []ReleaseLine, image string, latest string, behind int) {
+// ReleasePolicy is the game servers' update policy, as the Releases page
+// tells it.
+type ReleasePolicy struct {
+	// off, check or install; how often latest is resolved
+	Mode, Every string
+	// the automatic updates under way (install)
+	Jobs []int64
+}
+
+templ Releases(p view.Page, releases []ReleaseLine, image string, latest string, behind int, policy ReleasePolicy) {
 	@parts.Shell(p) {
 		@parts.Head("Releases", "The dedicated server's releases, as "+image+" images pinned by digest (and their zip for nodes without Docker).") {
 			if p.Can("admin") {
@@ -125,7 +134,23 @@ templ Releases(p view.Page, releases []ReleaseLine, image string, latest string,
 			}
 		}
 		@parts.Body() {
-			if behind > 0 && latest != "" && p.Can("admin") {
+			<p class="text-sm text-muted">
+				switch policy.Mode {
+					case "install":
+						Latest is resolved every { policy.Every }; the servers that follow it update by themselves: one of the same network version once it has been empty, one of a new version after its game.
+					case "check":
+						Latest is resolved every { policy.Every }; a new one raises an alert, and the servers are updated from here.
+					default:
+						Latest is not looked for by itself (the update policy is off): check it here.
+				}
+				if p.Can("owner") {
+					<a href="/settings" class="text-accent">Change it</a>
+				}
+			</p>
+			for _, id := range policy.Jobs {
+				<a href={ templ.SafeURL(fmt.Sprintf("/jobs/%d", id)) } class="block rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">An automatic update is under way: job { fmt.Sprint(id) }.</a>
+			}
+			if behind > 0 && latest != "" && p.Can("admin") && len(policy.Jobs) == 0 {
 				<form method="post" action="/releases/update" class="flex flex-wrap items-center gap-3 rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
 					@parts.CSRF(p.CSRF)
 					<span>{ view.Count(behind, "server runs", "servers run") } an older release than { latest }.</span>
@@ -139,7 +164,7 @@ templ Releases(p view.Page, releases []ReleaseLine, image string, latest string,
 			}
 			<div class={ view.Panel + " overflow-x-auto" }>
 				if len(releases) == 0 {
-					<p class="px-4 py-8 text-center text-sm text-muted">No release known yet: latest is resolved a minute after the start, then every 6 hours. Fetch a tag, or name an image the nodes have (a build of your own).</p>
+					<p class="px-4 py-8 text-center text-sm text-muted">No release known yet: latest is resolved a minute after the start, then every { policy.Every }. Fetch a tag, or name an image the nodes have (a build of your own).</p>
 				} else {
 					<table class="w-full text-sm">
 						<thead><tr><th class={ view.Th }>Build</th><th class={ view.Th }>Image</th><th class={ view.Th }>Zip</th><th class={ view.Th }>Network</th><th class={ view.Th }>Runs on</th><th class={ view.Th }>Resolved</th><th class={ view.Th }></th></tr></thead>

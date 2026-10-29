@@ -34,6 +34,7 @@ var Rules = []struct{ ID, Name string }{
 	{"speed_hack", "A speed hack"},
 	{"update_failed", "An update that did not come up"},
 	{"update_rolled_back", "A server put back on its build, pinned, after an update that did not come up"},
+	{"update_policy", "The game servers' update policy set by an upgrade (once)"},
 	{"vpn_list", "A server without a current VPN list (none for 2 hours, or all over 48 hours old)"},
 }
 

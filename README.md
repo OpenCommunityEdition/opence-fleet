@@ -100,11 +100,11 @@ The pages, by what they are for:
 | Nodes | machines, their health (graphs of CPU, memory, disk and network over an hour, a day or a week) and versions, *Add a node*, their settings, forget |
 | Profiles | rotations, settings, gametypes, release channel, password policy, publisher key: a change reaches every server of the profile live (or marks it *restart needed*) |
 | Library | maps, custom maps and gametype files the nodes sync (uploads are chunked and resumable, checked by SHA-256) |
-| Releases | the server image's builds (`latest` resolved from the registry), local builds, and the release zips of the process runtime |
+| Releases | the server image's builds (`latest` resolved from the registry) with their network version, local builds, and the release zips of the process runtime; the servers' update policy |
 | Masters | the master servers, the fleet's publisher keys and what each master says of them |
 | Bans | fleet bans (by address, hardware id or verified Discord account, with an expiry), imported or applied everywhere |
 | Jobs, Schedules | bulk actions and their waves; cron schedules of them (in the fleet's time zone) |
-| Alerts | crashes, crash loops, nodes offline, probes failing, slow frames, a disk filling, a server without a current VPN list; Discord and generic webhooks |
+| Alerts | crashes, crash loops, nodes offline, probes failing, slow frames, a disk filling, a server without a current VPN list, a release out, an update that did not come up; Discord and generic webhooks |
 | Audit, Team, Settings | who did what; users, roles (viewer, moderator, admin, owner), invites and API tokens; the fleet's settings |
 
 ### VPNs and linked Discord accounts
@@ -161,6 +161,10 @@ opence-fleet export > fleet.json
 Every option is an environment variable and a flag; the flag wins. A
 setting the Settings page also has (the name, the time zone, retention) is
 the page's unless the variable is set, when the page shows it as pinned.
+`FLEET_RELEASE_CHECK_INTERVAL` is the exception: it is only the release
+check's first value, kept when the database has none (a new fleet's first
+start); the Settings page's value wins after, and the variable never
+overrides it.
 
 `opence-fleet serve`:
 
@@ -179,7 +183,7 @@ the page's unless the variable is set, when the page shows it as pinned.
 | `FLEET_MASTERS_FILE` | `--masters-file` | — | a masters.txt naming the master servers the Masters page asks (default: the official master) |
 | `FLEET_IMAGE` | `--image` | `ghcr.io/opencommunityedition/opence-server` | the dedicated server's image (or a mirror of it) |
 | `FLEET_RELEASE_REPOSITORY` | `--release-repository` | `OpenCommunityEdition/OpenCE` | the game's GitHub repository, whose releases' halo-linux-release.zip the process runtime runs |
-| `FLEET_RELEASE_CHECK_INTERVAL` | `--release-check-interval` | `6h` | how often latest is resolved |
+| `FLEET_RELEASE_CHECK_INTERVAL` | `--release-check-interval` | — | the first value of the Settings page's release check (5m to 7 days; default 30m), kept when the database has none |
 | `FLEET_EVENTS_DAYS` | `--events-days` | `30` | days the servers' events and games are kept |
 | `FLEET_SAMPLES_DAYS` | `--samples-days` | `7` | days the players' samples (the sparklines) and the nodes' (their health's graphs) are kept |
 | `FLEET_LOG_ADDRESSES` | `--log-addresses` | `true` | the servers log and show players' addresses and hardware ids to admins (HALO_SERVER_LOG_ADDRESSES), which fleet bans need |
@@ -237,8 +241,8 @@ logs and saves). A forgotten server's folder is kept aside for 7 days.
 The fleet checks its own releases a minute after it starts and every 6
 hours (the Settings page's *Check now* does at once) and, with
 `FLEET_UPDATES=notify`, shows the owners a button; `auto` installs at once.
-(`FLEET_RELEASE_CHECK_INTERVAL` is how often the game's server image's
-latest is resolved, on the Releases page.)
+(`FLEET_UPDATES` is the fleet's own updates alone; the game servers' are
+below.)
 An update is a signed release (`SHA256SUMS` signed with the release key);
 the control plane restarts into it with its listener handed over, and
 offers the same version to every agent, which updates itself without
@@ -250,6 +254,58 @@ The game's servers are updated from the Releases page or `opence-fleet
 update`: a rolling job, a wave at a time, each server drained (after its
 game, when it is empty, or now) and started on the new build, with a
 rollback when one does not come back up.
+
+#### The game servers' updates
+
+The fleet keeps the game's own updater off in its servers
+(`HALO_SERVER_AUTO_UPDATE=off`, in containers and the process runtime
+alike) and updates them itself, as a lone server's `server.auto_update =
+"install"` would (the game's `docs/dedicated_server.md`, "Updates"). The
+Settings page (and `opence-fleet settings`, `PUT /api/v1/settings`) holds
+the policy:
+
+| Setting | Default | What |
+| --- | --- | --- |
+| `server_update_mode` | `install` | `install`: the servers that follow latest update by themselves; `check`: a new latest raises the *release out* alert and the admins update them; `off`: latest is not looked for by itself, and no alert (the Releases page's *Check latest now* still works) |
+| `release_check_interval` | `30m` | how often latest is resolved from the registry (5m at least; a change is taken at the next look, without a restart) |
+| `update_empty_wait` | `10m` | how long a server must have been empty, on end, before an update of the same network version restarts it |
+| `drain_deadline` | `30m` | how long a drain after the game waits (the game's `server.update_game_minutes`): then the game is ended as `sv_end_game` ends it, its scores and postgame shown, and the server restarts after it (3 minutes more at most) |
+| `rolling_per_node` | `2` | the servers of a node restarted at once, by a rolling job and an automatic update |
+
+With `install`, a new latest (or a server found behind it at a later look)
+starts an **automatic update**, a job of the actor `auto:update` on the Jobs
+page (cancel it there; its steps are audited). The nodes fetch the build
+first (a container's node pulls the image; for the process runtime the
+control plane fetches the release's zip), then each server goes on its own:
+
+- a build of the **same network version** restarts it once it has been
+  empty (no player in its status) for `update_empty_wait` on end: a player
+  who joins meanwhile plays on, and the wait starts again when the server
+  is empty;
+- a build of a **new network version**, which the old version's players
+  can no longer join once the others update, or of one **not known**: in a
+  game, a drain after it, its players told "This server updates after this
+  game", the game ended with its scores at `drain_deadline`; in the lobby
+  with players, a 30 seconds' notice, then a restart; nobody on, a restart
+  at once.
+
+A release's network version is the image's `org.opence.network-version`
+label (read from the registry with its digest), else its GitHub release's
+`Network version: N` line (the process runtime's zips too), else what the
+first server that runs it says; the Releases page shows it and where it was
+read. A server pinned to a build (its Release, or its profile's, a build
+rather than latest) is never moved. A stopped server, or one not up
+(crashed, blocked, draining), is not restarted: it runs latest at its next
+start, as the spec already says. A newer build supersedes an automatic
+update still waiting (cancelled, and a new one started); a server is never
+in two. One that does not come up on the build is put back on its own,
+pinned, and stops the job, as a manual update does.
+
+**The upgrade to this version** set, once, `server_update_mode` to
+`install` and `release_check_interval` to `30m` on a fleet that ran before
+it (a database migration, which a database runs once in its life: a later
+upgrade, or a value changed afterwards, is never touched), and told the
+owners (an alert, the audit, the feed). A new fleet has them as defaults.
 
 ### What is kept, and for how long
 

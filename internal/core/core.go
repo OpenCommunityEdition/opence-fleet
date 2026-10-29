@@ -3,8 +3,9 @@
 // library, releases, publisher keys and the masters, bans, jobs, schedules,
 // alerts and the audit log. Every change goes through it with an actor
 // ("user:<name>", "token:<label>", "schedule:<name>", "agent:<node>",
-// "auto"), writes its audit row, and pushes the specs it changes to the
-// nodes (package hub). It is also the hub's Sink: the agents' reports come
+// "auto", and "auto:update" for the game servers' automatic updates),
+// writes its audit row, and pushes the specs it changes to the nodes
+// (package hub). It is also the hub's Sink: the agents' reports come
 // here and become the live state (package live), events, games, samples,
 // fleet bans on sight and alerts.
 package core
@@ -18,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -65,9 +67,13 @@ type Fleet struct {
 	lasting *lastingConditions
 	// when each server's VPN lists were last asked (the vpn_list alert)
 	vpnPolls *vpnPolls
-	// the builds whose network version a server told
+	// the automatic updates' decisions, one at a time; the builds whose
+	// network version a server told
+	autoMu  sync.Mutex
 	learnMu sync.Mutex
 	learnt  map[string]bool
+	// an automatic update's lobby notice, and how often it looks
+	updateNotice, updatePoll time.Duration
 	// each node's network counters at its last sample (the rates)
 	netMu       sync.Mutex
 	netReadings map[int64]netReading
@@ -107,7 +113,8 @@ func New(s *store.Store, key *crypt.Key, c *config.ServeConfig, log *slog.Logger
 		owners:      &owners{nodes: map[string]int64{}}, crashes: &crashTimes{at: map[string][]time.Time{}},
 		events:   &eventWriter{ch: make(chan db.InsertEventParams, 8192)},
 		lasting:  &lastingConditions{since: map[string]time.Time{}},
-		vpnPolls: &vpnPolls{at: map[string]time.Time{}}, learnt: map[string]bool{}}
+		vpnPolls: &vpnPolls{at: map[string]time.Time{}}, learnt: map[string]bool{},
+		updateNotice: updateLobbyNotice, updatePoll: autoUpdatePoll}
 	f.Hub = hub.New(f, log.With("part", "hub"))
 	f.jobs = newJobRunner(f)
 	f.PublicURL = c.PublicURL
@@ -170,7 +177,51 @@ var settingEnv = map[string]string{"name": "FLEET_NAME", "masters": "FLEET_MASTE
 
 var settingDefaults = map[string]string{"name": "OpenCE Fleet", "events_days": "30", "log_addresses": "true",
 	"public_status": "false", "default_channel": "latest", "rolling_per_node": "2", "drain_deadline": "30m",
-	"apply_mode": "live", "theme": "dark"}
+	"apply_mode": "live", "theme": "dark", "server_update_mode": UpdateInstall, "release_check_interval": "30m",
+	"update_empty_wait": "10m"}
+
+// SettingNames is the settings the Settings page, the API and an export
+// show, in their order.
+var SettingNames = []string{"name", "default_channel", "server_update_mode", "release_check_interval",
+	"update_empty_wait", "rolling_per_node", "drain_deadline", "events_days", "log_addresses", "public_status"}
+
+// checkSetting refuses a value a setting cannot take.
+func checkSetting(name, value string) error {
+	duration := func(least, most time.Duration, words string) error {
+		d, err := config.Duration(value)
+		if err != nil || d < least || d > most {
+			return Refuse(http.StatusBadRequest, "schema", "%s is %s (as 30m or 2h)", name, words)
+		}
+		return nil
+	}
+	switch name {
+	case "server_update_mode":
+		if value != UpdateOff && value != UpdateCheck && value != UpdateInstall {
+			return Refuse(http.StatusBadRequest, "schema", "server_update_mode is off, check or install")
+		}
+	case "release_check_interval":
+		return duration(MinimumReleaseCheck, 7*24*time.Hour, "5 minutes to 7 days")
+	case "update_empty_wait":
+		return duration(0, 24*time.Hour, "0 (at once) to 24 hours")
+	case "drain_deadline":
+		return duration(time.Minute, 24*time.Hour, "1 minute to 24 hours")
+	case "rolling_per_node":
+		if n, err := strconv.Atoi(value); err != nil || n < 1 || n > 100 {
+			return Refuse(http.StatusBadRequest, "schema", "rolling_per_node is 1 to 100 servers")
+		}
+	}
+	return nil
+}
+
+// settingDuration is a duration setting, or its default when its value is
+// not one (a value from before it was checked).
+func (f *Fleet) settingDuration(ctx context.Context, name string) time.Duration {
+	if d, err := config.Duration(f.Setting(ctx, name)); err == nil && d >= 0 {
+		return d
+	}
+	d, _ := config.Duration(settingDefaults[name])
+	return d
+}
 
 func (f *Fleet) envSetting(name string) string {
 	c := f.Config
@@ -207,12 +258,18 @@ func (f *Fleet) SetSetting(ctx context.Context, actor, name, value string) error
 			return Refuse(http.StatusBadRequest, "schema", "%s is not a setting", name)
 		}
 	}
+	if err := checkSetting(name, value); err != nil {
+		return err
+	}
 	if err := f.Store.SetSetting(ctx, db.SetSettingParams{Name: name, Value: value}); err != nil {
 		return err
 	}
 	f.Audit(ctx, actor, "settings.set", name, value)
 	if name == "log_addresses" {
 		f.PushAll(ctx)
+	}
+	if name == "server_update_mode" && value == UpdateInstall {
+		go f.reconcileUpdates(context.Background())
 	}
 	return nil
 }
@@ -232,6 +289,8 @@ func (f *Fleet) Location() *time.Location {
 // running, the offline nodes, the samples, retention, the masters, the
 // releases, the schedules and the alerts.
 func (f *Fleet) Run(ctx context.Context) {
+	f.seedSettings(ctx)
+	f.announceUpdatePolicy(ctx)
 	go f.jobs.resume(ctx)
 	go f.sampleLoop(ctx)
 	go f.retentionLoop(ctx)

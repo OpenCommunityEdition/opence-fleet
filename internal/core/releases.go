@@ -40,16 +40,24 @@ func (f *Fleet) CheckLatest(ctx context.Context, actor string) (db.Release, bool
 	}
 	f.learnNetworkVersion(ctx, tag, digest)
 	moved := previous.Build != tag
+	mode := f.UpdateMode(ctx)
 	if moved {
 		f.Audit(ctx, actor, "release.latest", tag, map[string]string{"digest": digest, "was": previous.Build})
-		if previous.Build != "" {
-			f.raiseAlert(ctx, "release_out", tag, fmt.Sprintf("%s is out (was %s): update the servers that follow latest", tag, previous.Build))
+		if previous.Build != "" && mode != UpdateOff {
+			then := "update the servers that follow latest"
+			if mode == UpdateInstall {
+				then = "the servers that follow latest update to it by themselves (server_update_mode install)"
+			}
+			f.raiseAlert(ctx, "release_out", tag, fmt.Sprintf("%s is out (was %s): %s", tag, previous.Build, then))
 			f.Live.AddFeed(live.FeedItem{Kind: "info", Event: "release", Text: tag + " is out"})
 		}
 		// (the nodes pull it; their servers that follow latest are marked
 		// restart needed, and run it at their next start: nothing restarts
-		// by itself)
+		// by itself but by the install policy's jobs)
 		f.PushAll(ctx)
+		if mode == UpdateInstall {
+			go f.reconcileUpdates(context.Background())
+		}
 	}
 	r, err := f.Store.GetRelease(ctx, tag)
 	return r, moved, err
@@ -238,18 +246,29 @@ func (f *Fleet) ForgetRelease(ctx context.Context, actor, build string) error {
 }
 
 // releasesLoop resolves latest a minute after the start, then every
-// FLEET_RELEASE_CHECK_INTERVAL.
+// release_check_interval (read at each look, so that a change on the
+// Settings page needs no restart), unless the update policy is off; each
+// look ends with the install policy's (reconcileUpdates).
 func (f *Fleet) releasesLoop(ctx context.Context) {
-	wait := time.Minute
+	started := f.Now()
+	var last time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-time.After(releaseTick):
 		}
-		wait = f.Config.ReleaseCheckInterval
+		now := f.Now()
+		if last.IsZero() && now.Sub(started) < time.Minute || !last.IsZero() && now.Sub(last) < f.ReleaseCheckInterval(ctx) {
+			continue
+		}
+		last = now
+		if f.UpdateMode(ctx) == UpdateOff {
+			continue
+		}
 		if _, _, err := f.CheckLatest(ctx, "auto"); err != nil {
 			f.Log.Info("latest was not resolved", "err", err)
 		}
+		f.reconcileUpdates(ctx)
 	}
 }

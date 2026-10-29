@@ -2,7 +2,9 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/OpenCommunityEdition/opence-fleet/internal/auth"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/serverapi"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view/pages"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/web"
 )
@@ -133,5 +136,72 @@ func TestSettingLinesPending(t *testing.T) {
 	// (the server's own are last)
 	if lines[len(lines)-1].Name != "server.something_new" {
 		t.Fatalf("the order: %v", lines)
+	}
+}
+
+// The fleet's settings page shows the game servers' update policy, and the
+// page and the API change it, each value checked.
+func TestFleetUpdateSettings(t *testing.T) {
+	x := newFixture(t, nil, true)
+	ctx := context.Background()
+	page := x.do(signed(request(http.MethodGet, "/settings", loopback, nil), x.cookie)).Body.String()
+	for _, want := range []string{`name="server_update_mode"`, `<option value="install" selected>`,
+		`name="release_check_interval"`, `name="update_empty_wait" class=`} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the Settings page has no %s", want)
+		}
+	}
+	post := func(values url.Values) {
+		values.Set("csrf", x.owner.CSRF)
+		x.do(signed(request(http.MethodPost, "/settings", loopback, form(values)), x.cookie))
+	}
+	post(url.Values{"server_update_mode": {"check"}, "release_check_interval": {"2h"}})
+	if x.fleet.UpdateMode(ctx) != core.UpdateCheck || x.fleet.Setting(ctx, "release_check_interval") != "2h" {
+		t.Fatalf("not saved: %s %s", x.fleet.UpdateMode(ctx), x.fleet.Setting(ctx, "release_check_interval"))
+	}
+	post(url.Values{"release_check_interval": {"1m"}})
+	if x.fleet.Setting(ctx, "release_check_interval") != "2h" {
+		t.Fatal("a check under 5 minutes was saved")
+	}
+
+	// the API: an owner's alone
+	token := x.apiToken(auth.Owner)
+	w := x.do(bearer(request(http.MethodGet, "/api/v1/settings", loopback, nil), token))
+	var answer struct {
+		Settings map[string]string `json:"settings"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &answer) != nil || answer.Settings["server_update_mode"] != "check" {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	put := func(token, body string) *httptest.ResponseRecorder {
+		r := bearer(request(http.MethodPut, "/api/v1/settings", loopback, strings.NewReader(body)), token)
+		r.Header.Set("Content-Type", "application/json")
+		return x.do(r)
+	}
+	if w := put(token, `{"server_update_mode":"off","update_empty_wait":"15m"}`); w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if x.fleet.UpdateMode(ctx) != core.UpdateOff || x.fleet.Setting(ctx, "update_empty_wait") != "15m" {
+		t.Fatal("not saved by the API")
+	}
+	if w := put(token, `{"server_update_mode":"sometimes"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("a wrong mode: %d", w.Code)
+	}
+	if w := put(token, `{"nothing":"1"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown setting: %d", w.Code)
+	}
+	if w := put(x.apiToken(auth.Admin), `{"server_update_mode":"install"}`); w.Code != http.StatusForbidden {
+		t.Fatalf("an admin: %d", w.Code)
+	}
+
+	// the Releases page tells the policy, and each release's network version
+	x.fleet.AddLocalRelease(ctx, "test", "build-900", "opence-server:build-900", false)
+	x.fleet.Store.SetReleaseNetworkVersion(ctx, db.SetReleaseNetworkVersionParams{NetworkVersion: 39, NetworkSource: "label",
+		Build: "build-900"})
+	page = x.do(signed(request(http.MethodGet, "/releases", loopback, nil), x.cookie)).Body.String()
+	for _, want := range []string{"the update policy is off", ">Network<", "39 <span", "the image&#39;s label"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the Releases page has no %s", want)
+		}
 	}
 }

@@ -65,6 +65,8 @@ func (s *Server) api(mux *http.ServeMux) {
 	read("GET /api/v1/schedules", s.apiSchedules)
 	read("GET /api/v1/alerts", s.apiAlerts)
 	mux.Handle("GET /api/v1/audit", s.gate(auth.Admin, http.HandlerFunc(s.apiAudit)))
+	mux.Handle("GET /api/v1/settings", s.gate(auth.Owner, http.HandlerFunc(s.apiSettings)))
+	act("PUT /api/v1/settings", auth.Owner, s.apiSetSettings)
 	mux.Handle("GET /api/v1/export", s.gate(auth.Owner, http.HandlerFunc(s.apiExport)))
 	act("POST /api/v1/import", auth.Owner, s.apiImport)
 	read("GET /api/v1/stream", s.apiStream)
@@ -741,6 +743,53 @@ func (s *Server) apiAudit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "audit": rows, "before": next})
 }
 
+// apiSettings is the fleet's settings (the Settings page's), and those its
+// environment pins.
+func (s *Server) apiSettings(w http.ResponseWriter, r *http.Request) {
+	settings := map[string]string{}
+	pinned := []string{}
+	for _, name := range core.SettingNames {
+		settings[name] = s.Fleet.Setting(r.Context(), name)
+		if core.Pinned(name) {
+			pinned = append(pinned, name)
+		}
+	}
+	writeJSON(w, map[string]any{"ok": true, "settings": settings, "pinned": pinned})
+}
+
+// apiSetSettings changes settings: {"name": "value", …}, each checked, in
+// the Settings page's order (the first refused stops the rest).
+func (s *Server) apiSetSettings(w http.ResponseWriter, r *http.Request) {
+	var in map[string]string
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
+		s.apiError(w, core.Refuse(http.StatusBadRequest, "schema", "a JSON object of settings: %v", err))
+		return
+	}
+	known := map[string]bool{}
+	for _, name := range core.SettingNames {
+		known[name] = true
+	}
+	for name := range in {
+		if !known[name] {
+			s.apiError(w, core.Refuse(http.StatusBadRequest, "schema", "%s is not a setting", name))
+			return
+		}
+	}
+	var changed []string
+	for _, name := range core.SettingNames {
+		value, ok := in[name]
+		if !ok || strings.TrimSpace(value) == s.Fleet.Setting(r.Context(), name) {
+			continue
+		}
+		if err := s.Fleet.SetSetting(r.Context(), s.actor(r), name, strings.TrimSpace(value)); err != nil {
+			s.apiError(w, err)
+			return
+		}
+		changed = append(changed, name)
+	}
+	writeJSON(w, map[string]any{"ok": true, "changed": changed})
+}
+
 // Export is what moves between fleets: profiles (with their gametypes),
 // groups, bans, schedules, and, asked for, the publisher keys' seeds (the
 // owner's secret: only over this signed-in API).
@@ -766,7 +815,8 @@ func (s *Server) apiExport(w http.ResponseWriter, r *http.Request) {
 	out.Groups, _ = s.Fleet.Store.ListGroups(ctx)
 	out.Bans, _ = s.Fleet.Bans(ctx, false)
 	out.Schedules, _ = s.Fleet.Store.ListSchedules(ctx)
-	for _, name := range []string{"name", "default_channel", "rolling_per_node", "drain_deadline"} {
+	for _, name := range []string{"name", "default_channel", "server_update_mode", "release_check_interval",
+		"update_empty_wait", "rolling_per_node", "drain_deadline"} {
 		out.Settings[name] = s.Fleet.Setting(ctx, name)
 	}
 	if r.URL.Query().Get("keys") == "1" {

@@ -191,7 +191,15 @@ func (s *Server) releasesPage(w http.ResponseWriter, r *http.Request) {
 	for _, rel := range releases {
 		lines = append(lines, pages.ReleaseLine{Release: rel, Running: running[rel.Build]})
 	}
-	s.render(w, r, http.StatusOK, pages.Releases(s.page(r, "Releases", "releases"), lines, s.Fleet.Config.Image, d.latest, behind))
+	policy := pages.ReleasePolicy{Mode: s.Fleet.UpdateMode(ctx), Every: view.Duration(s.Fleet.ReleaseCheckInterval(ctx))}
+	if jobs, err := s.Fleet.Store.ListUnfinishedJobs(ctx); err == nil {
+		for _, job := range jobs {
+			if job.Kind == core.ActionAutoUpdate {
+				policy.Jobs = append(policy.Jobs, job.ID)
+			}
+		}
+	}
+	s.render(w, r, http.StatusOK, pages.Releases(s.page(r, "Releases", "releases"), lines, s.Fleet.Config.Image, d.latest, behind, policy))
 }
 
 func (s *Server) checkLatest(w http.ResponseWriter, r *http.Request) {

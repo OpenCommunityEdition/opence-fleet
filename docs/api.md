@@ -91,6 +91,8 @@ reach a server.
 | `DELETE /api/v1/bans/{id}` | admin | lift a fleet ban everywhere |
 | `GET /api/v1/schedules`, `GET /api/v1/alerts` | viewer | schedules; open and recent alerts |
 | `GET /api/v1/audit` | admin | the audit log, newest first, 500 at a time (`?actor=&action=&target=&before=`; the answer's `before` pages on) |
+| `GET /api/v1/settings` | owner | the fleet's settings (the Settings page's: `server_update_mode`, `release_check_interval`, `update_empty_wait`, `rolling_per_node`, `drain_deadline`, …) and those its environment pins |
+| `PUT /api/v1/settings` | owner | `{"server_update_mode": "check", "release_check_interval": "1h"}`: each checked (`schema`), a pinned one refused (`pinned`) |
 | `GET /api/v1/export` | owner | the fleet's configuration as JSON (`?keys=1`: with the keys' seeds, audited) |
 | `POST /api/v1/import` | owner | an export, into this fleet |
 | `GET /api/v1/stream` | viewer | the live changes, as server-sent events (below) |

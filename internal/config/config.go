@@ -39,7 +39,7 @@ var Serve = []Option{
 	{Env: "FLEET_MASTERS_FILE", Flag: "masters-file", Help: "a masters.txt naming the master servers the Masters page asks (default: the official master)"},
 	{Env: "FLEET_IMAGE", Flag: "image", Help: "the dedicated server's image (or a mirror of it)", Default: "ghcr.io/opencommunityedition/opence-server"},
 	{Env: "FLEET_RELEASE_REPOSITORY", Flag: "release-repository", Help: "the game's GitHub repository, whose releases' halo-linux-release.zip the process runtime runs", Default: "OpenCommunityEdition/OpenCE"},
-	{Env: "FLEET_RELEASE_CHECK_INTERVAL", Flag: "release-check-interval", Help: "how often latest is resolved", Default: "6h"},
+	{Env: "FLEET_RELEASE_CHECK_INTERVAL", Flag: "release-check-interval", Help: "the first value of the Settings page's release check (how often latest is resolved; default 30m), kept when the database has none: the page's value wins after"},
 	{Env: "FLEET_EVENTS_DAYS", Flag: "events-days", Help: "days the servers' events and games are kept", Default: "30"},
 	{Env: "FLEET_SAMPLES_DAYS", Flag: "samples-days", Help: "days the players' samples (the sparklines) and the nodes' (their health's graphs) are kept", Default: "7"},
 	{Env: "FLEET_LOG_ADDRESSES", Flag: "log-addresses", Help: "the servers log and show players' addresses and hardware ids to admins (HALO_SERVER_LOG_ADDRESSES), which fleet bans need", Default: "true"},
@@ -182,10 +182,13 @@ func LoadServe(v Values) (*ServeConfig, error) {
 	}
 	c.TrustedProxies, err = Prefixes(v.Get("FLEET_TRUSTED_PROXIES"))
 	check(err, "FLEET_TRUSTED_PROXIES")
-	c.ReleaseCheckInterval, err = Duration(v.Get("FLEET_RELEASE_CHECK_INTERVAL"))
-	check(err, "FLEET_RELEASE_CHECK_INTERVAL")
-	if err == nil && c.ReleaseCheckInterval < 10*time.Minute {
-		errs = append(errs, errors.New("FLEET_RELEASE_CHECK_INTERVAL: 10 minutes at least"))
+	// (0 when it is not set: the database's value, or the default)
+	if text := v.Get("FLEET_RELEASE_CHECK_INTERVAL"); text != "" {
+		c.ReleaseCheckInterval, err = Duration(text)
+		check(err, "FLEET_RELEASE_CHECK_INTERVAL")
+		if err == nil && (c.ReleaseCheckInterval < 5*time.Minute || c.ReleaseCheckInterval > 7*24*time.Hour) {
+			errs = append(errs, errors.New("FLEET_RELEASE_CHECK_INTERVAL: 5 minutes to 7 days"))
+		}
 	}
 	c.EventsDays, err = strconv.Atoi(v.Get("FLEET_EVENTS_DAYS"))
 	check(err, "FLEET_EVENTS_DAYS")

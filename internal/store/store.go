@@ -91,7 +91,11 @@ func Migrations() ([]string, error) {
 	return names, nil
 }
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Store) migrate(ctx context.Context) error { return s.migrateTo(ctx, 0) }
+
+// migrateTo applies the migrations up to a version (0: all of them; a
+// test's database of an older release).
+func (s *Store) migrateTo(ctx context.Context, last int) error {
 	if _, err := s.DB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`); err != nil {
 		return err
 	}
@@ -109,7 +113,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	for i, name := range names {
 		version := i + 1
-		if version <= current {
+		if version <= current || last > 0 && version > last {
 			continue
 		}
 		prefix, _, _ := strings.Cut(name, "_")

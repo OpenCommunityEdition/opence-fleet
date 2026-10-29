@@ -49,7 +49,8 @@ needs the real one (`tests/e2e`).
 ## Invariants
 
 - **Every mutation goes through `internal/core` with an actor** (`user:…`,
-  `token:…`, `agent:…`, `schedule:…`, `auto`) and writes an audit row. The
+  `token:…`, `agent:…`, `schedule:…`, `auto`, `auto:update` for the game
+  servers' automatic updates) and writes an audit row. The
   pages and the API are thin; a rule lives in core once.
 - **No secret leaves its place**: web passwords, owner passwords, join and
   node tokens, API tokens, publisher keys' seeds and webhook URLs are never

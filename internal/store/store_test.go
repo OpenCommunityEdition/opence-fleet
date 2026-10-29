@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,5 +74,75 @@ func TestPruneAndSnapshot(t *testing.T) {
 	}
 	if NotFound(nil) {
 		t.Fatal()
+	}
+}
+
+// openAt makes a database of an older release: its schema up to a version.
+func openAt(t *testing.T, path string, version int) *Store {
+	t.Helper()
+	conn, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{Queries: db.New(conn), DB: conn, Path: path}
+	if err := s.migrateTo(context.Background(), version); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestUpdatePolicyOneOff(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	// a fleet of the release before: an owner, and its own policy and check
+	old := openAt(t, path, 4)
+	old.CreateUser(ctx, db.CreateUserParams{Name: "paul", PasswordHash: "x", Role: "owner", CreatedAt: 1})
+	old.SetSetting(ctx, db.SetSettingParams{Name: "server_update_mode", Value: "check"})
+	old.SetSetting(ctx, db.SetSettingParams{Name: "release_check_interval", Value: "6h"})
+	old.Close()
+
+	// its first start on this release sets both, once, and marks it
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"server_update_mode": "install", "release_check_interval": "30m",
+		"update_policy_migrated": "pending"} {
+		if got := s.Setting(ctx, name); got != want {
+			t.Errorf("%s is %q after the upgrade, not %q", name, got, want)
+		}
+	}
+	// an admin changes them afterwards, and the start tells the owners
+	s.SetSetting(ctx, db.SetSettingParams{Name: "server_update_mode", Value: "check"})
+	s.SetSetting(ctx, db.SetSettingParams{Name: "release_check_interval", Value: "2h"})
+	s.SetSetting(ctx, db.SetSettingParams{Name: "update_policy_migrated", Value: "v0.2.0"})
+	s.Close()
+
+	// a later start (or upgrade) applies nothing again
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for name, want := range map[string]string{"server_update_mode": "check", "release_check_interval": "2h",
+		"update_policy_migrated": "v0.2.0"} {
+		if got := s.Setting(ctx, name); got != want {
+			t.Errorf("%s is %q after a second start, not the admin's %q", name, got, want)
+		}
+	}
+}
+
+func TestUpdatePolicyNewFleet(t *testing.T) {
+	// a new fleet keeps no value: the defaults (and a variable's first
+	// value) are its
+	s, err := Open(filepath.Join(t.TempDir(), "fleet.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, name := range []string{"server_update_mode", "release_check_interval", "update_policy_migrated"} {
+		if got := s.Setting(context.Background(), name); got != "" {
+			t.Errorf("a new fleet has %s %q", name, got)
+		}
 	}
 }

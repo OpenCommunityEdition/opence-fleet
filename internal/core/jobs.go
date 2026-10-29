@@ -204,13 +204,19 @@ func (f *Fleet) StartJob(ctx context.Context, actor string, p JobParams) (int64,
 		instances[slug] = row
 	}
 	waves := f.waves(p, instances)
-	data, _ := json.Marshal(p)
 	if p.Action == ActionSay || p.Action == ActionCommand || p.Action == ActionSetRotation {
 		title += ": " + truncate(p.Text, 60)
 	}
 	if p.Action == ActionUpdate {
 		title += " " + p.Channel
 	}
+	return f.createJob(ctx, actor, title, p, waves)
+}
+
+// createJob keeps a job and its items (each in its wave), audits it and
+// runs it.
+func (f *Fleet) createJob(ctx context.Context, actor, title string, p JobParams, waves map[string]int) (int64, error) {
+	data, _ := json.Marshal(p)
 	var id int64
 	err := f.Store.Tx(ctx, func(q *db.Queries) error {
 		var err error
@@ -339,6 +345,10 @@ func (j *jobRunner) execute(ctx context.Context, id int64) {
 	items, _ := f.Store.ListJobItems(ctx, id)
 	if p.Action == ActionSetRotation {
 		j.setRotation(ctx, id, p, items, actor)
+		return
+	}
+	if p.Action == ActionAutoUpdate {
+		j.autoUpdate(ctx, id, p, items)
 		return
 	}
 	if p.Action == ActionUpdate {
@@ -638,8 +648,20 @@ func (j *jobRunner) update(ctx context.Context, p JobParams, i Instance, actor s
 	}
 	wait := time.Duration(p.Deadline)*time.Second + agentproto.DrainEndGrace + 5*time.Minute
 	state := f.waitUp(ctx, i.Slug, wait, build, before)
+	return j.landed(ctx, i, build, previous, wasUp, was, state)
+}
+
+// landed is the outcome of an update restarted onto a build, from the state
+// it came to (waitUp's): up on it, or put back on its previous build and
+// pinned there (update_rolled_back) when it was up before. A job cancelled
+// meanwhile is not a failure of the build, and rolls nothing back.
+func (j *jobRunner) landed(ctx context.Context, i Instance, build, previous string, wasUp bool, was, state string) (string, string) {
+	f := j.f
 	if state == "up" {
 		return ItemDone, "runs " + build
+	}
+	if ctx.Err() != nil {
+		return ItemSkipped, "the job was cancelled while it restarted"
 	}
 	now := stateWords(f.Live.Instance(i.Slug))
 	if !wasUp {

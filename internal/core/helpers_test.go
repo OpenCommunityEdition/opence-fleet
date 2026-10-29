@@ -175,6 +175,10 @@ type request struct {
 	Body   json.RawMessage `json:"body"`
 	Action string          `json:"action"`
 	Line   string          `json:"line"`
+	// a drain's
+	After    string `json:"after"`
+	Notice   string `json:"notice"`
+	Deadline int    `json:"deadline"`
 }
 
 // agent is a node's agent that answers the hub's requests with answer

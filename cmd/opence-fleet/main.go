@@ -84,6 +84,7 @@ The command line (FLEET_URL, FLEET_TOKEN):
   opence-fleet say [--group <g>] <text>
   opence-fleet command <server> <line>
   opence-fleet update [--channel latest] [--group <g>] [--after game|empty|now]
+  opence-fleet settings [set <name> <value>]   the fleet's settings (server_update_mode off|check|install, ...)
   opence-fleet export [--keys] > fleet.json · opence-fleet import < fleet.json
 
   opence-fleet version | health | help

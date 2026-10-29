@@ -321,8 +321,15 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 	rows := []pages.SettingRow{
 		row("name", "The fleet's name", "On its pages, and in alerts."),
 		row("default_channel", "The default release", "latest, or a build: for profiles that name none."),
-		row("rolling_per_node", "Rolling waves", "Servers of a node restarted at once by a rolling job."),
-		row("drain_deadline", "A drain's deadline", "How long a drain waits for a game's end (30m)."),
+		row("server_update_mode", "The servers' updates", "install: the servers that follow latest update by "+
+			"themselves (the same network version once empty, a new one after its game); check: an alert, and you "+
+			"update them; off: latest is not looked for.", core.UpdateInstall, core.UpdateCheck, core.UpdateOff),
+		row("release_check_interval", "The release check", "How often latest is resolved (30m; 5m at least)."),
+		row("update_empty_wait", "Empty before an update", "How long a server must have been empty before an "+
+			"update of the same network version restarts it (10m)."),
+		row("rolling_per_node", "Rolling waves", "Servers of a node restarted at once by a rolling job (and an automatic update)."),
+		row("drain_deadline", "A drain's deadline", "How long a drain waits for a game's end (30m): then the game "+
+			"is ended, its scores shown, and the server stops after its postgame."),
 		row("events_days", "Events kept", "Days of events and games."),
 		row("log_addresses", "Players' addresses", "The servers log them (HALO_SERVER_LOG_ADDRESSES): fleet bans need them.", "true", "false"),
 		row("public_status", "A public status page", "/status: each server's name, map and players.", "false", "true"),
@@ -343,8 +350,7 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	for _, name := range []string{"name", "default_channel", "rolling_per_node", "drain_deadline", "events_days", "log_addresses",
-		"public_status"} {
+	for _, name := range core.SettingNames {
 		values, ok := r.Form[name]
 		if !ok || core.Pinned(name) {
 			continue
