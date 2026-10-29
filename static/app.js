@@ -313,6 +313,42 @@
     document.body.addEventListener("htmx:afterSwap", (e) => copies(e.target));
   }
 
+  // ---------- a region polled every few seconds (hx-trigger "every …") is
+  // not replaced while it is in use: an open menu (a details) or a field
+  // with the focus inside it would close, losing what was typed. The poll
+  // is skipped (or its answer dropped) then, and the region asked again as
+  // soon as it is left.
+  function polls() {
+    const polled = "[hx-trigger^='every ']";
+    // (a field left focused in a menu that closed, by Escape, is not in use)
+    const busy = (region) => {
+      const focused = document.activeElement;
+      return region.querySelector("details[open]") ||
+        (region.contains(focused) && !focused.closest("details:not([open])"));
+    };
+    const hold = (e, drop) => {
+      const region = e.detail.elt;
+      if (!region || !region.matches || !region.matches(polled) || !busy(region)) return;
+      region.dataset.stale = "1";
+      drop();
+    };
+    document.body.addEventListener("htmx:beforeRequest", (e) => hold(e, () => e.preventDefault()));
+    document.body.addEventListener("htmx:beforeSwap", (e) => hold(e, () => (e.detail.shouldSwap = false)));
+    const left = (target) => {
+      const region = target && target.closest && target.closest(polled);
+      if (!region || region.dataset.stale !== "1") return;
+      // (once the click or the focus has moved on: another menu may open)
+      setTimeout(() => {
+        if (!region.isConnected || busy(region)) return;
+        delete region.dataset.stale;
+        htmx.ajax("GET", region.getAttribute("hx-get"), { source: region, target: region, swap: "outerHTML" });
+      }, 0);
+    };
+    // (toggle does not bubble: caught on its way down)
+    document.addEventListener("toggle", (e) => e.target.open || left(e.target), true);
+    document.addEventListener("focusout", (e) => left(e.target));
+  }
+
   // ---------- an open sheet closes with Escape or a click elsewhere
   function sheets() {
     document.addEventListener("keydown", (e) => {
@@ -364,6 +400,7 @@
     console_();
     uploads();
     stream();
+    polls();
     sheets();
   });
 })();

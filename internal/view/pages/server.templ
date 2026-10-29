@@ -491,7 +491,9 @@ templ ServerPlayers(p view.Page, v ServerView, players []serverapi.Player, probl
 	}
 }
 
-// PlayersTable is a server's roster with its actions (refreshed every 5 s).
+// PlayersTable is a server's roster with its actions (refreshed every 5 s,
+// but not while an action's menu is open or one of its fields has the
+// focus: static/app.js's polls).
 templ PlayersTable(p view.Page, slug string, players []serverapi.Player, problem string) {
 	<div id="players-table" class={ view.Panel } hx-get={ "/servers/" + slug + "/fragment/players" } hx-trigger="every 5s" hx-swap="outerHTML">
 		if problem != "" {

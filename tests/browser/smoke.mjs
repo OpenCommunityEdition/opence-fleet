@@ -165,6 +165,22 @@ try {
   const kick = page.locator('form[action*="/players/"][action$="/kick"]');
   if (await until('a scripted player on btb-1', async () => (await kick.count()) > 0, 45000)) {
     await shot('players');
+    // an open menu, half typed, outlives the table's polls (every 5 s); the
+    // table is asked again once it closes
+    await page.locator('#players-table details summary').first().click();
+    await page.fill('#players-table details[open] input[name=reason]', 'half typed');
+    await sleep(6500);
+    check('an open menu survives a poll', await page.evaluate(() =>
+      document.querySelector('#players-table details[open] input[name=reason]')?.value === 'half typed'));
+    const before = await page.evaluate(() => {
+      const table = document.getElementById('players-table');
+      table.dataset.mark = '1';
+      return table.dataset.stale;
+    });
+    check('the skipped poll is remembered', before === '1');
+    await page.keyboard.press('Escape');
+    await until('the table refreshed once the menu closed', async () =>
+      page.evaluate(() => !document.getElementById('players-table').dataset.mark), 3000);
     await kick.first().evaluate((form) => form.requestSubmit());
     await page.waitForLoadState();
     check('a kick is done', /kick/i.test(await page.textContent('body')), page.url());

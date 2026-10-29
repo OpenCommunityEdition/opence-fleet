@@ -32,7 +32,8 @@ templ Players(p view.Page, players []FleetPlayer, search string, problems []stri
 	}
 }
 
-// PlayersFleetTable is the fleet's players (refreshed every 5 s).
+// PlayersFleetTable is the fleet's players (refreshed every 5 s, but not
+// while a menu is open or a field has the focus: static/app.js's polls).
 templ PlayersFleetTable(p view.Page, players []FleetPlayer, search string, problems []string) {
 	<div id="fleet-players" hx-get={ "/players/fragment?q=" + search } hx-trigger="every 5s" hx-swap="outerHTML" class={ view.Panel + " overflow-x-auto" }>
 		if len(players) == 0 {
