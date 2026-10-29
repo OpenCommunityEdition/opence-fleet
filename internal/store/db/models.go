@@ -189,6 +189,19 @@ type Node struct {
 	Forgotten    int64
 }
 
+type NodeSample struct {
+	NodeID      int64
+	Time        int64
+	Cpu         *float64
+	Load        float64
+	MemoryUsed  int64
+	MemoryTotal int64
+	DiskUsed    int64
+	DiskTotal   int64
+	NetIn       *float64
+	NetOut      *float64
+}
+
 type Profile struct {
 	ID             int64
 	Name           string

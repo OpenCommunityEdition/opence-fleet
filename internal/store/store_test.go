@@ -55,8 +55,13 @@ func TestPruneAndSnapshot(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	s.InsertEvent(ctx, db.InsertEventParams{Time: now.Add(-40 * 24 * time.Hour).UnixMilli(), Slug: "a", Type: "x", Data: "{}"})
 	s.InsertEvent(ctx, db.InsertEventParams{Time: now.UnixMilli(), Slug: "a", Type: "x", Data: "{}"})
+	s.InsertNodeSample(ctx, db.InsertNodeSampleParams{NodeID: 1, Time: now.Add(-8 * 24 * time.Hour).Unix()})
+	s.InsertNodeSample(ctx, db.InsertNodeSampleParams{NodeID: 1, Time: now.Add(-6 * 24 * time.Hour).Unix()})
 	if err := s.Prune(ctx, now, 30, 7); err != nil {
 		t.Fatal(err)
+	}
+	if samples, _ := s.ListNodeSamples(ctx, db.ListNodeSamplesParams{NodeID: 1}); len(samples) != 1 {
+		t.Fatalf("%d node samples kept", len(samples))
 	}
 	events, _ := s.ListEventsBySlug(ctx, db.ListEventsBySlugParams{Slug: "a", ID: 1 << 62, Limit: 10})
 	if len(events) != 1 {

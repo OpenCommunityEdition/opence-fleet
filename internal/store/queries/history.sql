@@ -52,3 +52,13 @@ DELETE FROM instance_samples WHERE time < ?;
 
 -- name: CountEventsSince :one
 SELECT count(*) FROM events WHERE slug = ? AND type = ? AND time >= ?;
+
+-- name: InsertNodeSample :exec
+INSERT OR REPLACE INTO node_samples (node_id, time, cpu, load, memory_used, memory_total, disk_used, disk_total, net_in, net_out)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListNodeSamples :many
+SELECT * FROM node_samples WHERE node_id = ? AND time >= ? ORDER BY time;
+
+-- name: PruneNodeSamples :exec
+DELETE FROM node_samples WHERE time < ?;

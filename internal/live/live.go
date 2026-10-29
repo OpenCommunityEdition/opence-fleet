@@ -73,6 +73,8 @@ type Node struct {
 	LastSeen    time.Time
 	Hello       agentproto.Hello
 	Heartbeat   agentproto.Heartbeat
+	// when the heartbeat came (LastSeen is also the connect's)
+	HeartbeatAt time.Time
 	Syncs       map[string]agentproto.Sync
 }
 
@@ -407,6 +409,21 @@ func (l *Live) Node(id int64) *Node {
 	return &copy
 }
 
+// Nodes is every node online, copied.
+func (l *Live) Nodes() []Node {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	var out []Node
+	for _, n := range l.nodes {
+		if n.Online {
+			copy := *n
+			copy.Syncs = nil
+			out = append(out, copy)
+		}
+	}
+	return out
+}
+
 // Connected marks a node online with its hello.
 func (l *Live) Connected(id int64, name string, hello agentproto.Hello) {
 	l.mu.Lock()
@@ -440,7 +457,7 @@ func (l *Live) Heartbeat(id int64, h agentproto.Heartbeat) {
 		l.mu.Unlock()
 		return
 	}
-	n.Heartbeat, n.LastSeen = h, time.Now()
+	n.Heartbeat, n.LastSeen, n.HeartbeatAt = h, time.Now(), time.Now()
 	name := n.Name
 	l.mu.Unlock()
 	for _, r := range h.Instances {

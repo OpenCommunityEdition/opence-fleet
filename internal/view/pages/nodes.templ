@@ -115,7 +115,7 @@ templ AddNode(p view.Page, name, command, token, expires string) {
 }
 
 // NodePageView is a node's page.
-templ NodePage(p view.Page, c view.NodeCard, rows []view.ServerRow, hello string) {
+templ NodePage(p view.Page, c view.NodeCard, rows []view.ServerRow, hello string, charts []view.Chart, window view.Window) {
 	@parts.Shell(p) {
 		@parts.Head(c.Name, "A node: "+c.Runtime) {
 			if p.Can("owner") && c.Online {
@@ -129,6 +129,7 @@ templ NodePage(p view.Page, c view.NodeCard, rows []view.ServerRow, hello string
 			<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
 				<div class="space-y-4">
 					@NodeCardView(c)
+					@NodeGraphs(c.Name, charts, window)
 					<div class={ view.Panel }>
 						<div class="px-4 py-3"><h2 class="text-base font-semibold">Servers</h2></div>
 						@parts.RowHeader(false)
@@ -197,4 +198,70 @@ templ NodePage(p view.Page, c view.NodeCard, rows []view.ServerRow, hello string
 			</div>
 		}
 	}
+}
+
+// NodeGraphs is a node's health over a window (a sample a minute, kept as
+// long as FLEET_SAMPLES_DAYS): inline SVG, a gap where the node was
+// offline, each column's values named on hover.
+templ NodeGraphs(name string, charts []view.Chart, window view.Window) {
+	<section class={ view.Panel }>
+		<div class="flex flex-wrap items-center gap-3 px-4 py-3">
+			<div class="min-w-0">
+				<h2 class="text-base font-semibold">Health</h2>
+				<p class="text-xs text-faint">A sample a minute, over the last { window.Label }.</p>
+			</div>
+			<nav class="ml-auto flex gap-1" aria-label="The graphs' window">
+				for _, w := range view.Windows {
+					<a
+						href={ templ.SafeURL("/nodes/" + name + "?window=" + w.Name) }
+						class={ view.Secondary + view.Small, templ.KV("!bg-raised !border-line-strong", w.Name == window.Name) }
+						if w.Name == window.Name {
+							aria-current="true"
+						}
+					>{ w.Name }</a>
+				}
+			</nav>
+		</div>
+		<div class="grid gap-4 border-t border-line px-4 py-4 sm:grid-cols-2">
+			for _, c := range charts {
+				@chartView(c)
+			}
+		</div>
+	</section>
+}
+
+templ chartView(c view.Chart) {
+	<figure class="min-w-0">
+		<figcaption class="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+			<span class="font-medium text-ink">{ c.Title }</span>
+			<span class="tabular-nums text-muted">{ c.Latest }</span>
+		</figcaption>
+		if len(c.Series) > 1 {
+			<div class="mt-1 flex gap-3 text-xs text-muted">
+				for _, s := range c.Series {
+					<span class="inline-flex items-center gap-1.5"><span class={ "inline-block h-0.5 w-3 rounded-full bg-current " + s.Class }></span>{ s.Name }</span>
+				}
+			</div>
+		}
+		<div class="relative mt-1">
+			<span class="pointer-events-none absolute top-0 left-0 text-[10px] text-faint tabular-nums">{ c.Top }</span>
+			<svg viewBox={ "0 0 " + view.Itoa(view.ChartWidth) + " " + view.Itoa(view.ChartHeight) } preserveAspectRatio="none" class="block h-28 w-full" role="img" aria-label={ c.Title + ": " + c.Latest }>
+				<line x1="0" y1="2" x2={ view.Itoa(view.ChartWidth) } y2="2" class="stroke-line" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+				<line x1="0" y1={ view.Itoa(view.ChartHeight / 2) } x2={ view.Itoa(view.ChartWidth) } y2={ view.Itoa(view.ChartHeight / 2) } class="stroke-line" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+				<line x1="0" y1={ view.Itoa(view.ChartHeight - 2) } x2={ view.Itoa(view.ChartWidth) } y2={ view.Itoa(view.ChartHeight - 2) } class="stroke-line-strong" stroke-width="1" vector-effect="non-scaling-stroke"></line>
+				for _, s := range c.Series {
+					if s.Path != "" {
+						<path d={ s.Path } class={ s.Class } fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"></path>
+					}
+				}
+				for _, col := range c.Columns {
+					<rect x={ col.X } y="0" width={ col.Width } height={ view.Itoa(view.ChartHeight) } class="fill-transparent hover:fill-ink/5"><title>{ col.Title }</title></rect>
+				}
+			</svg>
+			if c.Empty {
+				<span class="absolute inset-0 flex items-center justify-center text-xs text-faint">No samples yet.</span>
+			}
+		</div>
+		<div class="mt-0.5 flex justify-between text-[10px] text-faint tabular-nums"><span>{ c.From }</span><span>{ c.To }</span></div>
+	</figure>
 }

@@ -105,6 +105,40 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 	return err
 }
 
+const insertNodeSample = `-- name: InsertNodeSample :exec
+INSERT OR REPLACE INTO node_samples (node_id, time, cpu, load, memory_used, memory_total, disk_used, disk_total, net_in, net_out)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertNodeSampleParams struct {
+	NodeID      int64
+	Time        int64
+	Cpu         *float64
+	Load        float64
+	MemoryUsed  int64
+	MemoryTotal int64
+	DiskUsed    int64
+	DiskTotal   int64
+	NetIn       *float64
+	NetOut      *float64
+}
+
+func (q *Queries) InsertNodeSample(ctx context.Context, arg InsertNodeSampleParams) error {
+	_, err := q.db.ExecContext(ctx, insertNodeSample,
+		arg.NodeID,
+		arg.Time,
+		arg.Cpu,
+		arg.Load,
+		arg.MemoryUsed,
+		arg.MemoryTotal,
+		arg.DiskUsed,
+		arg.DiskTotal,
+		arg.NetIn,
+		arg.NetOut,
+	)
+	return err
+}
+
 const insertSample = `-- name: InsertSample :exec
 INSERT OR REPLACE INTO instance_samples (slug, time, players, frame_ms_max) VALUES (?, ?, ?, ?)
 `
@@ -289,6 +323,49 @@ func (q *Queries) ListInstanceSamples(ctx context.Context, arg ListInstanceSampl
 	return items, nil
 }
 
+const listNodeSamples = `-- name: ListNodeSamples :many
+SELECT node_id, time, cpu, load, memory_used, memory_total, disk_used, disk_total, net_in, net_out FROM node_samples WHERE node_id = ? AND time >= ? ORDER BY time
+`
+
+type ListNodeSamplesParams struct {
+	NodeID int64
+	Time   int64
+}
+
+func (q *Queries) ListNodeSamples(ctx context.Context, arg ListNodeSamplesParams) ([]NodeSample, error) {
+	rows, err := q.db.QueryContext(ctx, listNodeSamples, arg.NodeID, arg.Time)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NodeSample{}
+	for rows.Next() {
+		var i NodeSample
+		if err := rows.Scan(
+			&i.NodeID,
+			&i.Time,
+			&i.Cpu,
+			&i.Load,
+			&i.MemoryUsed,
+			&i.MemoryTotal,
+			&i.DiskUsed,
+			&i.DiskTotal,
+			&i.NetIn,
+			&i.NetOut,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentEvents = `-- name: ListRecentEvents :many
 SELECT id, time, node_id, slug, seq, type, data FROM events WHERE type IN (/*SLICE:types*/?) ORDER BY id DESC LIMIT ?
 `
@@ -411,6 +488,15 @@ DELETE FROM games WHERE started < ?
 
 func (q *Queries) PruneGames(ctx context.Context, started int64) error {
 	_, err := q.db.ExecContext(ctx, pruneGames, started)
+	return err
+}
+
+const pruneNodeSamples = `-- name: PruneNodeSamples :exec
+DELETE FROM node_samples WHERE time < ?
+`
+
+func (q *Queries) PruneNodeSamples(ctx context.Context, time int64) error {
+	_, err := q.db.ExecContext(ctx, pruneNodeSamples, time)
 	return err
 }
 

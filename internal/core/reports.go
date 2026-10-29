@@ -408,7 +408,8 @@ func (f *Fleet) endGame(ctx context.Context, slug string, ev eventFields) {
 		TeamScores: string(scores), Players: string(players), Peak: int64(max(peak, len(ev.Players))), ID: id})
 }
 
-// sampleLoop keeps each instance's players once a minute (the sparklines).
+// sampleLoop keeps each instance's players once a minute (the sparklines),
+// and each node's health (its graphs).
 func (f *Fleet) sampleLoop(ctx context.Context) {
 	for {
 		now := f.Now()
@@ -425,6 +426,7 @@ func (f *Fleet) sampleLoop(ctx context.Context) {
 			f.Store.InsertSample(ctx, db.InsertSampleParams{Slug: slug, Time: minute, Players: int64(i.Status.Players),
 				FrameMsMax: i.Status.FrameMsMax})
 		}
+		f.sampleNodes(ctx, minute)
 		f.Live.Notify(liveChange("tiles", ""))
 	}
 }

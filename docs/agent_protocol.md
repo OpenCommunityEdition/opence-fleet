@@ -71,7 +71,7 @@ its `type`:
 | Type | When | Fields |
 | --- | --- | --- |
 | `hello` | first | `protocol` (1), `node`, `version`, `os`, `arch`, `hostname`, `kernel`, `cpus`, `memory`, `disk`, `runtime` (`docker` or `process`), `docker` (its version), `data_root` (`synced` or the folder), `instances` (below), `last_seq` (each server's last event seq the agent sent, by slug) |
-| `heartbeat` | every 15 s | `load`, `memory_used`, `memory_total`, `disk_used`, `disk_total`, `version`, `images` (builds ready), `library_synced`, `missing` (library items not there), `instances` |
+| `heartbeat` | every 15 s | `load`, `memory_used`, `memory_total`, `disk_used`, `disk_total`, `cpu` (the CPUs' busy share since the last heartbeat, 0 to 100), `net_received` and `net_sent` (the interfaces' byte counters, the loopback's and containers' virtual ones left out; the three optional: an older agent, or one off Linux, sends none), `version`, `images` (builds ready), `library_synced`, `missing` (library items not there), `instances` |
 | `instance` | a server's state changes | `slug`, `state`, `exit`, `signal`, `reason`, `tail` (its last log lines on a crash), `generation`, `build`, `since`, `server_build`, `capabilities` (the game's, from its RCON hello) |
 | `status` | every 2 s per server (its RCON's status event) | `slug`, `status` (the server's `/api/status` object, whole) |
 | `event` | each of a server's events | `slug`, `run` (the server's start, ns: a seq is the run's), `seq`, `time`, `event`, `data` (the event whole), `replay` |

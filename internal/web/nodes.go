@@ -12,6 +12,7 @@ import (
 	"github.com/OpenCommunityEdition/opence-fleet/internal/config"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/core"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/spec"
+	"github.com/OpenCommunityEdition/opence-fleet/internal/store/db"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/update"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view"
 	"github.com/OpenCommunityEdition/opence-fleet/internal/view/pages"
@@ -108,9 +109,13 @@ func (s *Server) nodePage(w http.ResponseWriter, r *http.Request) {
 	if data, err := json.MarshalIndent(facts, "", "  "); err == nil {
 		hello = string(data)
 	}
+	window := view.WindowOf(r.URL.Query().Get("window"))
+	now := s.Fleet.Now()
+	samples, _ := s.Fleet.Store.ListNodeSamples(ctx, db.ListNodeSamplesParams{NodeID: card.ID, Time: now.Add(-window.Span).Unix()})
+	charts := view.NodeCharts(samples, now, window, s.Fleet.Location())
 	page := s.page(r, name, "nodes")
 	page.Live = true
-	s.render(w, r, http.StatusOK, pages.NodePage(page, card, rows, hello))
+	s.render(w, r, http.StatusOK, pages.NodePage(page, card, rows, hello, charts, window))
 }
 
 func (s *Server) nodeSettings(w http.ResponseWriter, r *http.Request) {

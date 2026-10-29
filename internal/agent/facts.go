@@ -52,6 +52,101 @@ func disk(path string) (used, total int64) {
 	return total - int64(s.Bavail)*int64(s.Bsize), total
 }
 
+// cpuTimes is the machine's CPU time from /proc/stat's first line, in
+// ticks: busy and in all (iowait counts as idle; guest time is in user's
+// already).
+type cpuTimes struct{ busy, total uint64 }
+
+// parseCPU reads /proc/stat's text.
+func parseCPU(text string) (cpuTimes, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 || fields[0] != "cpu" {
+			continue
+		}
+		var t cpuTimes
+		// user nice system idle iowait irq softirq steal
+		for k, field := range fields[1:min(len(fields), 9)] {
+			n, err := strconv.ParseUint(field, 10, 64)
+			if err != nil {
+				return cpuTimes{}, false
+			}
+			t.total += n
+			if k != 3 && k != 4 {
+				t.busy += n
+			}
+		}
+		return t, true
+	}
+	return cpuTimes{}, false
+}
+
+// readCPU is the machine's CPU time (false: not Linux, or unreadable).
+func readCPU() (cpuTimes, bool) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuTimes{}, false
+	}
+	return parseCPU(string(data))
+}
+
+// cpuPercent is the share of all the CPUs that was busy between two
+// readings, 0 to 100 (false: no time passed, or the counters went back).
+func cpuPercent(before, after cpuTimes) (float64, bool) {
+	if after.total <= before.total || after.busy < before.busy {
+		return 0, false
+	}
+	p := float64(after.busy-before.busy) * 100 / float64(after.total-before.total)
+	return min(100, p), true
+}
+
+// parseNetDev reads /proc/net/dev's text: the bytes received and sent by
+// the machine's interfaces, summed. The loopback and the virtual ones of
+// containers (veth*, docker*, br-*, virbr*) are left out: what crosses them
+// crosses a real interface too, and would count twice.
+func parseNetDev(text string) (received, sent uint64, ok bool) {
+	for _, line := range strings.Split(text, "\n") {
+		name, counters, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		fields := strings.Fields(counters)
+		if len(fields) < 9 || virtualInterface(name) {
+			continue
+		}
+		in, err1 := strconv.ParseUint(fields[0], 10, 64)
+		out, err2 := strconv.ParseUint(fields[8], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		received, sent, ok = received+in, sent+out, true
+	}
+	return received, sent, ok
+}
+
+func virtualInterface(name string) bool {
+	if name == "lo" {
+		return true
+	}
+	for _, prefix := range []string{"veth", "docker", "br-", "virbr"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// network is the machine's bytes received and sent (false: not Linux, or
+// unreadable).
+func network() (received, sent uint64, ok bool) {
+	data, err := os.ReadFile("/proc/net/dev")
+	if err != nil {
+		return 0, 0, false
+	}
+	return parseNetDev(string(data))
+}
+
 // kernel is the kernel's release.
 func kernel() string {
 	data, err := os.ReadFile("/proc/sys/kernel/osrelease")

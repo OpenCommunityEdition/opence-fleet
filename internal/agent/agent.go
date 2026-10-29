@@ -65,6 +65,10 @@ type Agent struct {
 	online   bool
 	wakeSync chan struct{}
 	ctx      context.Context
+
+	// the CPU time at the last heartbeat (its CPU use is since then)
+	cpuMu     sync.Mutex
+	cpuBefore *cpuTimes
 }
 
 // New makes an agent.
@@ -405,6 +409,19 @@ func (a *Agent) sendHeartbeat(ctx context.Context) {
 	diskUsed, diskTotal := disk(a.Config.Dir)
 	h := agentproto.Heartbeat{Load: load(), MemoryUsed: used, MemoryTotal: total, DiskUsed: diskUsed, DiskTotal: diskTotal,
 		Version: a.Version}
+	if received, sent, ok := network(); ok {
+		h.NetReceived, h.NetSent = &received, &sent
+	}
+	if now, ok := readCPU(); ok {
+		a.cpuMu.Lock()
+		if a.cpuBefore != nil {
+			if p, ok := cpuPercent(*a.cpuBefore, now); ok {
+				h.CPU = &p
+			}
+		}
+		a.cpuBefore = &now
+		a.cpuMu.Unlock()
+	}
 	a.mu.Lock()
 	for build, why := range a.builds {
 		if why == "" {

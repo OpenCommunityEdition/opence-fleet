@@ -131,11 +131,17 @@ type SpecMessage struct {
 
 // Heartbeat comes every 15 seconds.
 type Heartbeat struct {
-	Load          float64          `json:"load"`
-	MemoryUsed    int64            `json:"memory_used"`
-	MemoryTotal   int64            `json:"memory_total"`
-	DiskUsed      int64            `json:"disk_used"`
-	DiskTotal     int64            `json:"disk_total"`
+	Load        float64 `json:"load"`
+	MemoryUsed  int64   `json:"memory_used"`
+	MemoryTotal int64   `json:"memory_total"`
+	DiskUsed    int64   `json:"disk_used"`
+	DiskTotal   int64   `json:"disk_total"`
+	// the share of the CPUs busy since the last heartbeat (0 to 100), and
+	// the bytes the machine's interfaces received and sent since its start
+	// (counters): none from an agent before them, or off Linux
+	CPU           *float64         `json:"cpu,omitempty"`
+	NetReceived   *uint64          `json:"net_received,omitempty"`
+	NetSent       *uint64          `json:"net_sent,omitempty"`
 	Version       string           `json:"version"`
 	Images        []string         `json:"images"`
 	LibrarySynced bool             `json:"library_synced"`

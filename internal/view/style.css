@@ -23,6 +23,10 @@
 	--warn: #fbbf24;
 	--bad: #f87171;
 	--info: #60a5fa;
+	/* the graphs' series, in order (blue, then orange: told apart in every
+	   colour vision, and each 3:1 on the panel) */
+	--series-1: #3987e5;
+	--series-2: #d95926;
 	color-scheme: dark;
 }
 
@@ -42,6 +46,8 @@
 		--warn: #b45309;
 		--bad: #dc2626;
 		--info: #2563eb;
+		--series-1: #2a78d6;
+		--series-2: #eb6834;
 		color-scheme: light;
 	}
 }
@@ -61,6 +67,8 @@
 	--warn: #b45309;
 	--bad: #dc2626;
 	--info: #2563eb;
+	--series-1: #2a78d6;
+	--series-2: #eb6834;
 	color-scheme: light;
 }
 
@@ -79,6 +87,8 @@
 	--color-warn: var(--warn);
 	--color-bad: var(--bad);
 	--color-info: var(--info);
+	--color-series-1: var(--series-1);
+	--color-series-2: var(--series-2);
 	--radius-panel: 0.5rem;
 	--font-display: "Overpass", ui-sans-serif, system-ui, sans-serif;
 }

@@ -165,7 +165,7 @@ func (s *Store) Setting(ctx context.Context, name string) string {
 }
 
 // Prune removes what is past its retention: events and games older than
-// eventsDays, samples older than samplesDays, expired sessions and join
+// eventsDays, samples (the servers' and the nodes') older than samplesDays, expired sessions and join
 // tokens.
 func (s *Store) Prune(ctx context.Context, now time.Time, eventsDays, samplesDays int) error {
 	events := now.Add(-time.Duration(eventsDays) * 24 * time.Hour)
@@ -174,6 +174,7 @@ func (s *Store) Prune(ctx context.Context, now time.Time, eventsDays, samplesDay
 		s.PruneEvents(ctx, events.UnixMilli()),
 		s.PruneGames(ctx, events.Unix()),
 		s.PruneSamples(ctx, samples.Unix()),
+		s.PruneNodeSamples(ctx, samples.Unix()),
 		s.DeleteExpiredSessions(ctx, now.Unix()),
 		s.DeleteOldJoinTokens(ctx, now.Add(-24*time.Hour).Unix()),
 	)

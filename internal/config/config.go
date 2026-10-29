@@ -41,7 +41,7 @@ var Serve = []Option{
 	{Env: "FLEET_RELEASE_REPOSITORY", Flag: "release-repository", Help: "the game's GitHub repository, whose releases' halo-linux-release.zip the process runtime runs", Default: "OpenCommunityEdition/OpenCE"},
 	{Env: "FLEET_RELEASE_CHECK_INTERVAL", Flag: "release-check-interval", Help: "how often latest is resolved", Default: "6h"},
 	{Env: "FLEET_EVENTS_DAYS", Flag: "events-days", Help: "days the servers' events and games are kept", Default: "30"},
-	{Env: "FLEET_SAMPLES_DAYS", Flag: "samples-days", Help: "days the players' samples (the sparklines) are kept", Default: "7"},
+	{Env: "FLEET_SAMPLES_DAYS", Flag: "samples-days", Help: "days the players' samples (the sparklines) and the nodes' (their health's graphs) are kept", Default: "7"},
 	{Env: "FLEET_LOG_ADDRESSES", Flag: "log-addresses", Help: "the servers log and show players' addresses and hardware ids to admins (HALO_SERVER_LOG_ADDRESSES), which fleet bans need", Default: "true"},
 	{Env: "FLEET_PUBLIC_STATUS", Flag: "public-status", Help: "serve a public, read-only /status page of the servers", Default: "false"},
 	{Env: "FLEET_METRICS", Flag: "metrics", Help: "serve /metrics (Prometheus) without a token", Default: "true"},

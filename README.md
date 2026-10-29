@@ -97,7 +97,7 @@ The pages, by what they are for:
 | Servers | every server with its state, game and players, live; filters; bulk actions (start, stop, restart, drain, update, say, set a rotation, apply a profile, groups) as jobs |
 | A server | overview (with its VPN policy's card), players (kick, ban, tell, mute), rotation, gametypes, the console (the owner's, or the RCON's), settings (live, or *restart needed*), files (`debug.txt`, `stderr.txt`, `bans.txt`), history |
 | Players | everyone playing across the fleet, searchable; ban on sight |
-| Nodes | machines, their health and versions, *Add a node*, their settings, forget |
+| Nodes | machines, their health (graphs of CPU, memory, disk and network over an hour, a day or a week) and versions, *Add a node*, their settings, forget |
 | Profiles | rotations, settings, gametypes, release channel, password policy, publisher key: a change reaches every server of the profile live (or marks it *restart needed*) |
 | Library | maps, custom maps and gametype files the nodes sync (uploads are chunked and resumable, checked by SHA-256) |
 | Releases | the server image's builds (`latest` resolved from the registry), local builds, and the release zips of the process runtime |
@@ -181,7 +181,7 @@ the page's unless the variable is set, when the page shows it as pinned.
 | `FLEET_RELEASE_REPOSITORY` | `--release-repository` | `OpenCommunityEdition/OpenCE` | the game's GitHub repository, whose releases' halo-linux-release.zip the process runtime runs |
 | `FLEET_RELEASE_CHECK_INTERVAL` | `--release-check-interval` | `6h` | how often latest is resolved |
 | `FLEET_EVENTS_DAYS` | `--events-days` | `30` | days the servers' events and games are kept |
-| `FLEET_SAMPLES_DAYS` | `--samples-days` | `7` | days the players' samples (the sparklines) are kept |
+| `FLEET_SAMPLES_DAYS` | `--samples-days` | `7` | days the players' samples (the sparklines) and the nodes' (their health's graphs) are kept |
 | `FLEET_LOG_ADDRESSES` | `--log-addresses` | `true` | the servers log and show players' addresses and hardware ids to admins (HALO_SERVER_LOG_ADDRESSES), which fleet bans need |
 | `FLEET_PUBLIC_STATUS` | `--public-status` | `false` | serve a public, read-only /status page of the servers |
 | `FLEET_METRICS` | `--metrics` | `true` | serve /metrics (Prometheus) without a token |
@@ -254,7 +254,8 @@ rollback when one does not come back up.
 ### What is kept, and for how long
 
 The servers' events and games: `FLEET_EVENTS_DAYS` (30). Player-count
-samples (the sparklines): `FLEET_SAMPLES_DAYS` (7). The audit: for good.
+samples (the sparklines) and the nodes' (a minute's CPU, memory, disk and
+network, their graphs): `FLEET_SAMPLES_DAYS` (7). The audit: for good.
 Players' addresses and hardware ids are shown to admins and owners alone
 (their verified Discord accounts to moderators and above), and kept with the
 events for fleet bans; `FLEET_LOG_ADDRESSES=false`
