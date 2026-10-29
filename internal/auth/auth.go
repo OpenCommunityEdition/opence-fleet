@@ -156,7 +156,8 @@ type Auth struct {
 	Now   func() time.Time
 	// a session's length; "remember me" makes it 30 days
 	Length time.Duration
-	Idle   time.Duration
+	// how long a session (not remembered) lives unused; 0: no limit
+	Idle time.Duration
 
 	mu       sync.Mutex
 	failures map[string][]time.Time
@@ -164,9 +165,11 @@ type Auth struct {
 	checked  []time.Time
 }
 
-// New makes the accounts.
-func New(s *store.Store, sessionHours int) *Auth {
-	return &Auth{Store: s, Now: time.Now, Length: time.Duration(sessionHours) * time.Hour, Idle: 30 * time.Minute,
+// New makes the accounts: sessions of sessionHours that end after
+// idleMinutes unused (0: only at their length).
+func New(s *store.Store, sessionHours, idleMinutes int) *Auth {
+	return &Auth{Store: s, Now: time.Now, Length: time.Duration(sessionHours) * time.Hour,
+		Idle:     time.Duration(idleMinutes) * time.Minute,
 		failures: map[string][]time.Time{}, locked: map[string]time.Time{}}
 }
 
@@ -277,16 +280,40 @@ func (a *Auth) Session(ctx context.Context, token string) *Principal {
 	if err != nil {
 		return nil
 	}
+	if !a.alive(ctx, s) {
+		return nil
+	}
+	return &Principal{UserID: s.UserID, Name: s.Name, Role: s.Role, CSRF: s.Csrf, Kind: "session", TokenHash: s.TokenHash}
+}
+
+// alive tells whether a session still lives, ending it if not, and marks
+// it used (once a minute at most: a write per request would be too many).
+func (a *Auth) alive(ctx context.Context, s db.GetSessionRow) bool {
 	now := a.Now()
-	idle := s.Remember == 0 && now.Sub(time.Unix(s.LastUsed, 0)) > a.Idle
+	idle := s.Remember == 0 && a.Idle > 0 && now.Sub(time.Unix(s.LastUsed, 0)) > a.Idle
 	if now.Unix() > s.ExpiresAt || idle || s.Disabled != 0 {
 		a.Store.DeleteSession(ctx, s.TokenHash)
-		return nil
+		return false
 	}
 	if now.Unix()-s.LastUsed > 60 {
 		a.Store.TouchSession(ctx, db.TouchSessionParams{LastUsed: now.Unix(), TokenHash: s.TokenHash})
 	}
-	return &Principal{UserID: s.UserID, Name: s.Name, Role: s.Role, CSRF: s.Csrf, Kind: "session", TokenHash: s.TokenHash}
+	return true
+}
+
+// Touch marks a principal's session used, as a request would (a page that
+// only listens to the live stream is still being looked at), and tells
+// whether it still lives: a session signed out, revoked, expired or whose
+// user was disabled meanwhile is not. An API token is left alone.
+func (a *Auth) Touch(ctx context.Context, p *Principal) bool {
+	if p == nil || p.Kind != "session" {
+		return p != nil
+	}
+	s, err := a.Store.GetSession(ctx, p.TokenHash)
+	if err != nil {
+		return false
+	}
+	return a.alive(ctx, s)
 }
 
 // Logout ends a session.

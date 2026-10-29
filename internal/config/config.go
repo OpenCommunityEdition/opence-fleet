@@ -52,6 +52,7 @@ var Serve = []Option{
 	{Env: "FLEET_TIMEZONE", Flag: "timezone", Help: "the time zone of the schedules and pages (an IANA name; default the machine's)"},
 	{Env: "FLEET_CA_FILE", Flag: "ca-file", Help: "extra certificate authorities (PEM) for the masters, the registry and webhooks"},
 	{Env: "FLEET_SESSION_HOURS", Flag: "session-hours", Help: "how long a sign-in lasts", Default: "12"},
+	{Env: "FLEET_SESSION_IDLE_MINUTES", Flag: "session-idle-minutes", Help: "how long a sign-in lasts unused (an open page keeps it used; 0: no limit but its length)", Default: "240"},
 }
 
 // Agent is every option of `opence-fleet agent`.
@@ -149,7 +150,7 @@ type ServeConfig struct {
 	LogLevel, Updates, UpdateURL, UpdateKey      string
 	Timezone                                     *time.Location
 	CAFile                                       string
-	SessionHours                                 int
+	SessionHours, SessionIdleMinutes             int
 }
 
 // LoadServe reads the control plane's options.
@@ -194,6 +195,11 @@ func LoadServe(v Values) (*ServeConfig, error) {
 	check(err, "FLEET_SESSION_HOURS")
 	if err == nil && (c.SessionHours < 1 || c.SessionHours > 24*30) {
 		errs = append(errs, errors.New("FLEET_SESSION_HOURS: 1 to 720"))
+	}
+	c.SessionIdleMinutes, err = strconv.Atoi(v.Get("FLEET_SESSION_IDLE_MINUTES"))
+	check(err, "FLEET_SESSION_IDLE_MINUTES")
+	if err == nil && (c.SessionIdleMinutes < 0 || c.SessionIdleMinutes > 24*30*60) {
+		errs = append(errs, errors.New("FLEET_SESSION_IDLE_MINUTES: 0 (no limit) to 43200"))
 	}
 	c.InsecureHTTP, err = Bool(v.Get("FLEET_INSECURE_HTTP"))
 	check(err, "FLEET_INSECURE_HTTP")

@@ -68,7 +68,7 @@ func newFixture(t *testing.T, clients *httpx.Clients, withOwner bool) *fixture {
 	}
 	t.Cleanup(func() { s.Close() })
 	f := core.New(s, crypt.New(), c, quiet(), live.New())
-	a := auth.New(s, 12)
+	a := auth.New(s, 12, 240)
 	if clients == nil {
 		clients = &httpx.Clients{}
 	}

@@ -20,7 +20,9 @@ import (
 // events is the live stream: server-sent events of re-rendered fragments,
 // named by what they replace (instance:<slug>, server:<slug>, tiles,
 // alerts, feed, node:<name>, job:<id>), rendered for the viewer's role, and
-// coalesced: a change that changes nothing visible sends nothing.
+// coalesced: a change that changes nothing visible sends nothing. While it
+// is open it keeps the viewer's session used (a page left open to watch is
+// in use), and it ends when the session does.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -62,6 +64,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	defer flush.Stop()
 	keepalive := time.NewTicker(25 * time.Second)
 	defer keepalive.Stop()
+	touched := time.Now()
 	if r.Header.Get("Last-Event-ID") != "" {
 		// (a reconnect: every row again, which the page may have missed)
 		instances, _ := s.Fleet.Instances(ctx)
@@ -91,6 +94,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 				pending[c.Kind+":"+c.Key] = c
 			}
 		case <-keepalive.C:
+			// (once a minute, as a request would; a session revoked or
+			// expired meanwhile ends the stream, and the page's next
+			// request signs in again)
+			if time.Since(touched) >= time.Minute {
+				touched = time.Now()
+				if !s.Auth.Touch(ctx, p) {
+					return
+				}
+			}
 			fmt.Fprint(w, ": keepalive\n\n")
 			flusher.Flush()
 		case <-flush.C:

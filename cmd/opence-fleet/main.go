@@ -232,7 +232,7 @@ func serve(args []string) error {
 	l := live.New()
 	fleet := core.New(s, key, c, log, l)
 	fleet.Masters, fleet.HTTP = masters, client
-	accounts := auth.New(s, c.SessionHours)
+	accounts := auth.New(s, c.SessionHours, c.SessionIdleMinutes)
 	clients := &httpx.Clients{Proxies: c.TrustedProxies, Insecure: c.InsecureHTTP}
 	if c.InsecureHTTP {
 		log.Warn("FLEET_INSECURE_HTTP: sign-ins, changes and agents are taken over plain HTTP from anywhere; " +
@@ -556,7 +556,7 @@ func setupLink(args []string) error {
 		return err
 	}
 	defer s.Close()
-	code, err := auth.New(s, c.SessionHours).SetupCode(context.Background())
+	code, err := auth.New(s, c.SessionHours, c.SessionIdleMinutes).SetupCode(context.Background())
 	if err != nil {
 		return err
 	}
@@ -594,7 +594,7 @@ func resetPassword(args []string) error {
 		fmt.Scanln(&line)
 		password = line
 	}
-	if err := auth.New(s, c.SessionHours).ResetPassword(context.Background(), set.Arg(0), password); err != nil {
+	if err := auth.New(s, c.SessionHours, c.SessionIdleMinutes).ResetPassword(context.Background(), set.Arg(0), password); err != nil {
 		return err
 	}
 	s.InsertAudit(context.Background(), dbAudit("cli", "user.reset_password", set.Arg(0)))

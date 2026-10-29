@@ -108,7 +108,7 @@ func start(t *testing.T) *harness {
 	t.Cleanup(func() { s.Close() })
 	l := live.New()
 	f := core.New(s, crypt.New(), c, logger(t), l)
-	a := auth.New(s, 12)
+	a := auth.New(s, 12, 240)
 	server := web.New(f, a, &httpx.Clients{}, quiet(), "dev-test")
 	server.AgentScript = opencefleet.AgentScript
 	web.Static = static.Files

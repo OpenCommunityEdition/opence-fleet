@@ -103,7 +103,7 @@ func TestRealGame(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	f := core.New(s, crypt.New(), c, logger(), live.New())
-	server := web.New(f, auth.New(s, 12), &httpx.Clients{}, logger(), "e2e")
+	server := web.New(f, auth.New(s, 12, 240), &httpx.Clients{}, logger(), "e2e")
 	web.Static = static.Files
 	ts := httptest.NewServer(server.Handler())
 	t.Cleanup(ts.Close)

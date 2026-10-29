@@ -20,7 +20,7 @@ func TestFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(s, 12)
+	a := New(s, 12, 240)
 	ctx := context.Background()
 	code, err := a.SetupCode(ctx)
 	if err != nil || code == "" || !a.SetupOpen(ctx) {
@@ -73,13 +73,35 @@ func TestFlow(t *testing.T) {
 	if _, _, err := a.Login(ctx, "paul", "a long password", "8.8.8.8", false); err != nil {
 		t.Fatal(err)
 	}
-	// idle sessions end
+	// a page that only listens keeps its session (Touch), an idle one ends
 	now := time.Now()
-	a.Now = func() time.Time { return now.Add(31 * time.Minute) }
-	if a.Session(ctx, token) != nil {
+	a.Now = func() time.Time { return now.Add(200 * time.Minute) }
+	if !a.Touch(ctx, owner) {
+		t.Fatal("a used session was not alive")
+	}
+	a.Now = func() time.Time { return now.Add(400 * time.Minute) }
+	if a.Session(ctx, token) == nil {
+		t.Fatal("a touched session ended")
+	}
+	a.Now = func() time.Time { return now.Add(641 * time.Minute) }
+	if a.Session(ctx, token) != nil || a.Touch(ctx, owner) {
 		t.Fatal("an idle session lived")
 	}
 	a.Now = time.Now
+	// with no idle limit, a session lasts its length
+	unlimited := New(s, 12, 0)
+	token, _, err = unlimited.Login(ctx, "paul", "a long password", "8.8.8.8", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlimited.Now = func() time.Time { return now.Add(11 * time.Hour) }
+	if unlimited.Session(ctx, token) == nil {
+		t.Fatal("a session without an idle limit ended early")
+	}
+	unlimited.Now = func() time.Time { return now.Add(13 * time.Hour) }
+	if unlimited.Session(ctx, token) != nil {
+		t.Fatal("a session outlived its length")
+	}
 	// the last owner stays one
 	if err := a.SetRole(ctx, owner, owner.UserID, Admin); err == nil {
 		t.Fatal("the last owner was demoted")

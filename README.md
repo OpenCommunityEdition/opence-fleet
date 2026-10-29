@@ -192,6 +192,7 @@ the page's unless the variable is set, when the page shows it as pinned.
 | `FLEET_TIMEZONE` | `--timezone` | — | the time zone of the schedules and pages (an IANA name; default the machine's) |
 | `FLEET_CA_FILE` | `--ca-file` | — | extra certificate authorities (PEM) for the masters, the registry and webhooks |
 | `FLEET_SESSION_HOURS` | `--session-hours` | `12` | how long a sign-in lasts |
+| `FLEET_SESSION_IDLE_MINUTES` | `--session-idle-minutes` | `240` | how long a sign-in lasts unused (an open page keeps it used; 0: no limit but its length) |
 
 `opence-fleet agent` (`/etc/opence-fleet/agent.env`, written by the
 enrolment):
