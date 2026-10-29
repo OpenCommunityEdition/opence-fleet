@@ -450,7 +450,7 @@ func (j *jobRunner) one(ctx context.Context, p JobParams, slug, actor string) (s
 		if err := f.Drain(ctx, actor, slug, p.After, p.Notice, time.Duration(p.Deadline)*time.Second, restart); err != nil {
 			return refused(err)
 		}
-		wait := time.Duration(p.Deadline)*time.Second + 3*time.Minute
+		wait := time.Duration(p.Deadline)*time.Second + agentproto.DrainEndGrace + 3*time.Minute
 		if restart {
 			if state := f.waitUp(ctx, slug, wait, "", before); state != "up" {
 				return ItemRefused, "not up again: " + stateWords(f.Live.Instance(slug))
@@ -636,7 +636,7 @@ func (j *jobRunner) update(ctx context.Context, p JobParams, i Instance, actor s
 	if err := f.Drain(ctx, actor, i.Slug, p.After, p.Notice, time.Duration(p.Deadline)*time.Second, true); err != nil {
 		return ItemRefused, err.Error()
 	}
-	wait := time.Duration(p.Deadline)*time.Second + 5*time.Minute
+	wait := time.Duration(p.Deadline)*time.Second + agentproto.DrainEndGrace + 5*time.Minute
 	state := f.waitUp(ctx, i.Slug, wait, build, before)
 	if state == "up" {
 		return ItemDone, "runs " + build

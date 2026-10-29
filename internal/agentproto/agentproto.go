@@ -9,6 +9,7 @@ package agentproto
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/OpenCommunityEdition/opence-fleet/internal/spec"
 )
@@ -278,6 +279,11 @@ type Control struct {
 	Line     string `json:"line,omitempty"`
 	File     string `json:"file,omitempty"`
 }
+
+// DrainEndGrace is how long a drain after the game waits, once its deadline
+// has passed and the game is ended (sv_end_game: its scores and postgame
+// shown), for the server to stop by itself before it is stopped.
+const DrainEndGrace = 3 * time.Minute
 
 // UpdateAgent offers the agent a release of itself.
 type UpdateAgent struct {

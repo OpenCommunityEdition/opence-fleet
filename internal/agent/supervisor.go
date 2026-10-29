@@ -1093,7 +1093,7 @@ func (s *supervisor) drain(r agentproto.Control) {
 	s.mu.Unlock()
 	s.report()
 	s.agentLine("info", fmt.Sprintf("draining: %s once %s (deadline %s)", map[bool]string{true: "a restart", false: "a stop"}[r.Then == "restart"], after, deadline))
-	ctx, cancel := context.WithTimeout(s.a.ctx, deadline+stopGrace+10*time.Second)
+	ctx, cancel := context.WithTimeout(s.a.ctx, deadline+agentproto.DrainEndGrace+stopGrace+10*time.Second)
 	defer cancel()
 	if after == "now" || !ready || client == nil {
 		_ = h.Stop(ctx, stopGrace)
@@ -1111,6 +1111,9 @@ func (s *supervisor) drain(r agentproto.Control) {
 		if _, err := s.console(ctx, line); err == nil {
 			select {
 			case <-time.After(deadline):
+				if after == "game" && s.endGame(ctx, h) {
+					return
+				}
 				s.agentLine("warn", "the drain's deadline passed: stopped")
 				_ = h.Stop(ctx, stopGrace)
 			case <-ctx.Done():
@@ -1126,11 +1129,20 @@ func (s *supervisor) drain(r agentproto.Control) {
 	}
 	started := s.lastSeq()
 	end := time.After(deadline)
+	ended := false
 	poll := time.NewTicker(2 * time.Second)
 	defer poll.Stop()
 	for {
 		select {
 		case <-end:
+			// (the game ended, the poll below sees it and stops the server)
+			if after == "game" && !ended {
+				ended = true
+				s.agentLine("info", "the drain's deadline passed: the game is ended (sv_end_game), then the server stops")
+				_, _ = client.Command(ctx, "sv_end_game")
+				end = time.After(agentproto.DrainEndGrace)
+				continue
+			}
 			s.agentLine("warn", "the drain's deadline passed: stopped")
 			_ = h.Stop(ctx, stopGrace)
 			return
@@ -1146,6 +1158,27 @@ func (s *supervisor) drain(r agentproto.Control) {
 				return
 			}
 		}
+	}
+}
+
+// endGame ends a drained server's game at its drain's deadline, as
+// sv_end_game ends it (its scores and postgame shown, not a stop in the
+// middle of it), and waits DrainEndGrace for the drain to stop the server
+// after the postgame: false when it did not (no game was being played, or
+// it went on), for the stop.
+func (s *supervisor) endGame(ctx context.Context, h runtime.Handle) bool {
+	s.agentLine("info", "the drain's deadline passed: the game is ended (sv_end_game), then the server stops")
+	lines, err := s.console(ctx, "sv_end_game")
+	if err != nil || strings.Contains(strings.Join(lines, " "), "no game is being played") {
+		return false
+	}
+	select {
+	case <-s.handleEnded(h):
+		return true
+	case <-time.After(agentproto.DrainEndGrace):
+		return false
+	case <-ctx.Done():
+		return true
 	}
 }
 

@@ -106,7 +106,7 @@ Control actions:
 | Action | Fields | What |
 | --- | --- | --- |
 | `start`, `stop`, `restart` | | lifecycle; a stop while the spec says running holds until a start or the next generation |
-| `drain` | `after` (`game`, `empty`, `now`), `notice`, `deadline` (s), `then` (`restart` or `stop`) | the game's own drain (`sv_stop`/`sv_restart` when it has the `stop` capability; otherwise unlisted, a notice, and a wait) |
+| `drain` | `after` (`game`, `empty`, `now`), `notice`, `deadline` (s), `then` (`restart` or `stop`) | the game's own drain (`sv_stop`/`sv_restart` when it has the `stop` capability; otherwise unlisted, a notice, and a wait); at the deadline a drain after the game ends it (`sv_end_game`: its scores and postgame) and waits 3 minutes more for the server to stop, then stops it (an agent before this stops it at the deadline) |
 | `signal` | `signal` (`hup`, `usr1`) | `hup`: reload; `usr1`: reopen the logs |
 | `logs` | `after_n`, `limit` | the agent's ring of the server's log lines |
 | `rotate_password` | `password` | the server's web password, changed live |
