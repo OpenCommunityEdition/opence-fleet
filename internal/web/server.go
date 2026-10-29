@@ -107,6 +107,7 @@ func (s *Server) Handler() http.Handler {
 	form("POST /servers/{slug}/delete", auth.Admin, s.deleteServer)
 	form("POST /servers/{slug}/edit", auth.Admin, s.editServer)
 	form("POST /servers/{slug}/setting", auth.Admin, s.serverSetting)
+	form("POST /servers/{slug}/settings", auth.Admin, s.serverSettings)
 	form("POST /servers/{slug}/rotate-password", auth.Admin, s.rotatePassword)
 	form("POST /servers/{slug}/say", auth.Moderator, s.serverSay)
 	form("POST /servers/{slug}/next", auth.Moderator, s.serverNext)

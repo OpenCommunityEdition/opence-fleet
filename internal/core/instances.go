@@ -473,14 +473,31 @@ func redactSettings(settings map[string]any) map[string]any {
 // SetOverride sets (or, with value nil, resets to the profile) one setting
 // of an instance.
 func (f *Fleet) SetOverride(ctx context.Context, actor, slug, name string, value any) error {
+	return f.SetOverrides(ctx, actor, slug, map[string]any{name: value})
+}
+
+// SetOverrides sets (or, each with value nil, resets to the profile) some
+// settings of an instance at once: one change, one audit row and one spec
+// sent. A value that is not its setting's sets none of them.
+func (f *Fleet) SetOverrides(ctx context.Context, actor, slug string, values map[string]any) error {
 	i, err := f.Instance(ctx, slug)
 	if err != nil {
 		return err
 	}
-	if value == nil {
-		delete(i.Overrides.Settings, name)
-	} else {
-		v, err := spec.Normalize(name, value)
+	if i.Overrides.Settings == nil {
+		i.Overrides.Settings = map[string]any{}
+	}
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if values[name] == nil {
+			delete(i.Overrides.Settings, name)
+			continue
+		}
+		v, err := spec.Normalize(name, values[name])
 		if err != nil {
 			return Refuse(http.StatusBadRequest, "schema", "%v", err)
 		}

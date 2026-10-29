@@ -49,12 +49,21 @@ type VPNView struct {
 	Now         time.Time
 }
 
-// SettingLine is a setting on the Settings tab.
+// SettingLine is a setting on the Settings tab. Value is the fleet's for a
+// setting it sets; Pending, that the server still serves another (Served).
 type SettingLine struct {
 	Name, Type, Value, Default, Comment, Env, Source string
+	Group, Served                                    string
 	Choices                                          []string
-	Pinned, Secret, Live, Override                   bool
+	Pinned, Secret, Live, Override, Pending          bool
 }
+
+// OwnSettings is the group of the settings the fleet does not set: the
+// server's own (sv_set).
+const OwnSettings = "The server's own"
+
+// editable tells whether a setting is a field of the Settings tab's form.
+func (s SettingLine) editable(p view.Page) bool { return p.Can("admin") && !s.Pinned && !s.Secret }
 
 // ServerTabs is a server's tabs.
 func ServerTabs(slug string) []parts.Tab {
@@ -855,82 +864,110 @@ func logTime(ms int64, p view.Page) string {
 }
 
 // ServerSettings is the Settings tab: every setting with where its value
-// comes from.
+// comes from. An admin edits them in one form, saved at once ("Save
+// changes" sends every field; the handler sets only the changed ones).
 templ ServerSettings(p view.Page, v ServerView, settings []SettingLine, fromServer bool) {
 	@ServerFrame(p, v) {
 		<p class="text-sm text-muted">
 			if fromServer {
-				As the server serves them (GET /api/settings). A setting of this server overrides its profile's; the environment's are the fleet's own, pinned.
+				As the server serves them (GET /api/settings), but a setting the fleet sets shows the fleet's value, marked pending until the server serves it. A setting of this server overrides its profile's; the environment's are the fleet's own, pinned.
 			} else {
 				The server is not up: these are the fleet's values for it.
 			}
 		</p>
-		<div class={ view.Panel + " overflow-x-auto" }>
-			<table class="w-full text-sm">
-				<thead><tr><th class={ view.Th }>Setting</th><th class={ view.Th }>Value</th><th class={ view.Th }>From</th><th class={ view.Th }></th></tr></thead>
-				<tbody>
-					for _, s := range settings {
+		if p.Can("admin") {
+			<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/settings") } class="space-y-3">
+				@parts.CSRF(p.CSRF)
+				@settingsSave()
+				@settingsTable(p, v, settings)
+				@settingsSave()
+			</form>
+		} else {
+			@settingsTable(p, v, settings)
+		}
+	}
+}
+
+// settingsSave is the Settings form's button (the first in the form: the
+// one Enter presses, not a row's reset).
+templ settingsSave() {
+	<div class="flex items-center justify-end gap-3">
+		<span class="text-xs text-faint">Only the settings you change are saved.</span>
+		<button type="submit" class={ view.Primary + view.Small }>Save changes</button>
+	</div>
+}
+
+templ settingsTable(p view.Page, v ServerView, settings []SettingLine) {
+	<div class={ view.Panel + " overflow-x-auto" }>
+		<table class="w-full text-sm">
+			<thead><tr><th class={ view.Th }>Setting</th><th class={ view.Th }>Value</th><th class={ view.Th }>From</th><th class={ view.Th }></th></tr></thead>
+			<tbody>
+				for k, s := range settings {
+					if k == 0 || settings[k-1].Group != s.Group {
 						<tr class={ view.Tr }>
-							<td class={ view.Td }>
-								<div class="font-mono text-xs">{ s.Name }</div>
-								<div class="max-w-md text-xs text-faint">{ s.Comment }</div>
-							</td>
-							<td class={ view.Td }>
-								if s.Pinned || !p.Can("admin") || s.Secret {
-									<span class="font-mono text-xs">
-										if s.Secret {
-											(a secret)
-										} else {
-											{ s.Value }
-										}
-									</span>
-								} else {
-									<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/setting") } class="flex gap-2">
-										@parts.CSRF(p.CSRF)
-										<input type="hidden" name="name" value={ s.Name }/>
-										if len(s.Choices) > 0 {
-											<select name="value" class={ view.Select + " !w-auto" }>
-												for _, c := range s.Choices {
-													<option value={ c } selected?={ c == s.Value }>{ c }</option>
-												}
-											</select>
-										} else if s.Type == "boolean" {
-											<select name="value" class={ view.Select + " !w-auto" }>
-												<option value="true" selected?={ s.Value == "true" }>true</option>
-												<option value="false" selected?={ s.Value == "false" }>false</option>
-											</select>
-										} else {
-											<input name="value" value={ s.Value } class={ view.InputInline + " w-48" }/>
-										}
-										<button type="submit" class={ view.Secondary + view.Small }>Set</button>
-									</form>
-								}
-							</td>
-							<td class={ view.Td + " text-xs" }>
-								<span class={ templ.KV("text-accent", s.Source == "this server"), templ.KV("text-muted", s.Source != "this server") }>{ s.Source }</span>
-								if s.Env != "" && s.Pinned {
-									<div class="text-faint">{ s.Env }</div>
-								}
-								if !s.Live {
-									<div class="text-faint">at a restart</div>
-								}
-							</td>
-							<td class={ view.Td + " text-right" }>
-								if s.Override && p.Can("admin") {
-									<form method="post" action={ templ.SafeURL("/servers/" + v.Instance.Slug + "/setting") }>
-										@parts.CSRF(p.CSRF)
-										<input type="hidden" name="name" value={ s.Name }/>
-										<input type="hidden" name="reset" value="1"/>
-										<button type="submit" class="text-xs text-accent hover:underline">reset to the profile</button>
-									</form>
-								}
-							</td>
+							<th colspan="4" class={ view.Th + " text-left" }>{ s.Group }</th>
 						</tr>
 					}
-				</tbody>
-			</table>
-		</div>
-	}
+					<tr class={ view.Tr }>
+						<td class={ view.Td }>
+							<div class="font-mono text-xs">{ s.Name }</div>
+							<div class="max-w-md text-xs text-faint">{ s.Comment }</div>
+						</td>
+						<td class={ view.Td }>
+							if !s.editable(p) {
+								<span class="font-mono text-xs">
+									if s.Secret {
+										(a secret)
+									} else {
+										{ s.Value }
+									}
+								</span>
+							} else {
+								<input type="hidden" name={ "shown." + s.Name } value={ s.Value }/>
+								if len(s.Choices) > 0 {
+									<select name={ "value." + s.Name } aria-label={ s.Name } class={ view.Select + " !w-auto" }>
+										for _, c := range s.Choices {
+											<option value={ c } selected?={ c == s.Value }>{ c }</option>
+										}
+									</select>
+								} else if s.Type == "boolean" {
+									<select name={ "value." + s.Name } aria-label={ s.Name } class={ view.Select + " !w-auto" }>
+										<option value="true" selected?={ s.Value == "true" }>true</option>
+										<option value="false" selected?={ s.Value == "false" }>false</option>
+									</select>
+								} else {
+									<input name={ "value." + s.Name } value={ s.Value } aria-label={ s.Name } class={ view.InputInline + " w-48" }/>
+								}
+							}
+							if s.Pending {
+								<div class="mt-1 text-xs text-warn">
+									if s.Live {
+										pending · server: <span class="font-mono">{ s.Served }</span>
+									} else {
+										pending, at a restart · server: <span class="font-mono">{ s.Served }</span>
+									}
+								</div>
+							}
+						</td>
+						<td class={ view.Td + " text-xs" }>
+							<span class={ templ.KV("text-accent", s.Source == "this server"), templ.KV("text-muted", s.Source != "this server") }>{ s.Source }</span>
+							if s.Env != "" && s.Pinned {
+								<div class="text-faint">{ s.Env }</div>
+							}
+							if !s.Live {
+								<div class="text-faint">at a restart</div>
+							}
+						</td>
+						<td class={ view.Td + " text-right" }>
+							if s.Override && p.Can("admin") {
+								<button type="submit" name="reset" value={ s.Name } class="text-xs text-accent hover:underline">reset to the profile</button>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
 }
 
 // ServerFiles is the Files tab.

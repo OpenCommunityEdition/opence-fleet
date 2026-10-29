@@ -316,8 +316,24 @@ func (s *Server) settingLines(ctx context.Context, v pages.ServerView) ([]pages.
 			profileSettings = p.Settings
 		}
 	}
+	var answer struct {
+		Settings []serverapi.SettingInfo `json:"settings"`
+	}
+	if err := s.Fleet.Call(ctx, v.Instance.Slug, http.MethodGet, "/api/settings", nil, &answer); err != nil {
+		answer.Settings = nil
+	}
+	return settingLinesOf(answer.Settings, profileSettings, v.Instance.Overrides.Settings)
+}
+
+// settingLinesOf is the Settings tab's table from what the server serves
+// (none: it is not up), its profile's settings and its own. A setting the
+// fleet sets shows the fleet's value, pending while the server still serves
+// another (the spec reaches the node a moment after a change, and a
+// setting that is not live waits for a restart), with the served one beside
+// it. The lines are in the table's groups, the server's own last.
+func settingLinesOf(served []serverapi.SettingInfo, profileSettings, overrides map[string]any) ([]pages.SettingLine, bool) {
 	source := func(name string) string {
-		if _, ok := v.Instance.Overrides.Settings[name]; ok {
+		if _, ok := overrides[name]; ok {
 			return "this server"
 		}
 		if _, ok := profileSettings[name]; ok {
@@ -325,48 +341,69 @@ func (s *Server) settingLines(ctx context.Context, v pages.ServerView) ([]pages.
 		}
 		return "the default"
 	}
-	var served []serverapi.SettingInfo
-	var answer struct {
-		Settings []serverapi.SettingInfo `json:"settings"`
-	}
-	if err := s.Fleet.Call(ctx, v.Instance.Slug, http.MethodGet, "/api/settings", nil, &answer); err == nil {
-		served = answer.Settings
-	}
+	merged := spec.Merge(profileSettings, overrides)
 	var out []pages.SettingLine
-	if len(served) > 0 {
-		for _, st := range served {
-			line := pages.SettingLine{Name: st.Name, Type: st.Type, Value: spec.SettingText(st.Value),
-				Default: spec.SettingText(st.Default), Comment: st.Comment, Choices: st.Choices, Pinned: st.Pinned,
-				Secret: st.Secret, Live: true}
-			if st.Env != nil {
-				line.Env = *st.Env
-			}
-			if st.Pinned {
-				line.Source = "the environment (the fleet's)"
-			} else if _, ok := spec.Lookup(st.Name); ok {
-				line.Source = source(st.Name)
-			} else {
-				line.Source = "the server"
-				line.Pinned = true
-			}
-			_, line.Override = v.Instance.Overrides.Settings[st.Name]
-			out = append(out, line)
+	for _, st := range served {
+		line := pages.SettingLine{Name: st.Name, Type: st.Type, Value: spec.SettingText(st.Value),
+			Default: spec.SettingText(st.Default), Comment: st.Comment, Choices: st.Choices, Pinned: st.Pinned,
+			Secret: st.Secret, Live: true, Group: pages.OwnSettings}
+		if st.Env != nil {
+			line.Env = *st.Env
 		}
-		return out, true
-	}
-	merged := spec.Merge(profileSettings, v.Instance.Overrides.Settings)
-	for _, st := range spec.Settings {
-		value := st.Default
-		if m, ok := merged[st.Name]; ok {
-			value = m
+		known, managed := spec.Lookup(st.Name)
+		if managed {
+			line.Live, line.Group = known.Live, known.Group
 		}
-		line := pages.SettingLine{Name: st.Name, Type: st.Type, Value: spec.SettingText(value), Default: spec.SettingText(st.Default),
-			Comment: st.Comment, Choices: st.Choices, Secret: st.Secret, Live: st.Live, Env: st.Env, Source: source(st.Name)}
-		_, line.Override = v.Instance.Overrides.Settings[st.Name]
+		switch {
+		case st.Pinned:
+			line.Source = "the environment (the fleet's)"
+		case managed:
+			line.Source = source(st.Name)
+			if want, ok := merged[st.Name]; ok && !st.Secret {
+				line.Value = spec.SettingText(want)
+				if served, err := spec.Normalize(st.Name, st.Value); err != nil || !spec.Equal(served, want) {
+					line.Pending, line.Served = true, spec.SettingText(st.Value)
+				}
+			}
+		default:
+			// (the server's own: shown, not changed here)
+			line.Source = "the server"
+			line.Pinned = true
+		}
+		_, line.Override = overrides[st.Name]
 		out = append(out, line)
 	}
-	sort.SliceStable(out, func(a, b int) bool { return out[a].Name < out[b].Name })
-	return out, false
+	fromServer := len(out) > 0
+	if !fromServer {
+		for _, st := range spec.Settings {
+			value := st.Default
+			if m, ok := merged[st.Name]; ok {
+				value = m
+			}
+			line := pages.SettingLine{Name: st.Name, Type: st.Type, Value: spec.SettingText(value), Default: spec.SettingText(st.Default),
+				Comment: st.Comment, Choices: st.Choices, Secret: st.Secret, Live: st.Live, Env: st.Env, Source: source(st.Name),
+				Group: st.Group}
+			_, line.Override = overrides[st.Name]
+			out = append(out, line)
+		}
+	}
+	order := map[string]int{}
+	for k, g := range spec.Groups() {
+		order[g] = k + 1
+	}
+	rank := func(group string) int {
+		if order[group] == 0 {
+			return len(order) + 1
+		}
+		return order[group]
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if ra, rb := rank(out[a].Group), rank(out[b].Group); ra != rb {
+			return ra < rb
+		}
+		return out[a].Name < out[b].Name
+	})
+	return out, fromServer
 }
 
 func (s *Server) serverLifecycle(w http.ResponseWriter, r *http.Request) {
@@ -455,6 +492,82 @@ func (s *Server) serverSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.done(w, r, "/servers/"+slug+"/settings", name+" is set for this server.")
+}
+
+// serverSettings saves the Settings tab's form: each setting as
+// "value.<name>", beside the value the page showed as "shown.<name>". Only
+// the settings whose value changed are set (one that was left alone stays
+// its profile's), all at once; a "reset" button names a setting to give
+// back to its profile, the other changes saved with it. A setting the fleet
+// does not manage is the server's own sv_set.
+func (s *Server) serverSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	slug := r.PathValue("slug")
+	back := "/servers/" + slug + "/settings"
+	if err := r.ParseForm(); err != nil {
+		s.fail(w, r, back, core.Refuse(http.StatusBadRequest, "form", "the form could not be read"))
+		return
+	}
+	changes := map[string]any{}
+	var own []string
+	for key, values := range r.PostForm {
+		name, ok := strings.CutPrefix(key, "value.")
+		if !ok || len(values) == 0 {
+			continue
+		}
+		shown, ok := r.PostForm["shown."+name]
+		if ok && len(shown) > 0 && shown[0] == values[0] {
+			continue
+		}
+		if _, managed := spec.Lookup(name); managed {
+			changes[name] = values[0]
+		} else {
+			own = append(own, name)
+		}
+	}
+	reset := r.PostForm.Get("reset")
+	if reset != "" {
+		if _, managed := spec.Lookup(reset); managed {
+			changes[reset] = nil
+		}
+	}
+	if len(changes) == 0 && len(own) == 0 {
+		s.done(w, r, back, "Nothing changed.")
+		return
+	}
+	if len(changes) > 0 {
+		if err := s.Fleet.SetOverrides(ctx, s.actor(r), slug, changes); err != nil {
+			s.fail(w, r, back, err)
+			return
+		}
+	}
+	sort.Strings(own)
+	var answers []string
+	for _, name := range own {
+		lines, err := s.Fleet.Command(ctx, s.actor(r), slug, "sv_set "+name+" "+strconv.Quote(r.PostForm.Get("value."+name)), principal(r).Role)
+		if err != nil {
+			s.fail(w, r, back, err)
+			return
+		}
+		answers = append(answers, lines...)
+	}
+	var notice []string
+	set := len(changes)
+	if _, ok := changes[reset]; ok && reset != "" {
+		notice = append(notice, reset+" is back to its profile's.")
+		set--
+	}
+	switch {
+	case set == 1:
+		notice = append(notice, "1 setting saved.")
+	case set > 1:
+		notice = append(notice, fmt.Sprintf("%d settings saved.", set))
+	}
+	if len(changes) > 0 {
+		notice = append(notice, "The server takes them in a moment (one that is not live, at its next restart).")
+	}
+	notice = append(notice, answers...)
+	s.done(w, r, back, strings.Join(notice, " "))
 }
 
 func (s *Server) rotatePassword(w http.ResponseWriter, r *http.Request) {
