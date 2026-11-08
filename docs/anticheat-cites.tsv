@@ -1,0 +1,51 @@
+archivo	cita_vieja	cita_nueva	veredicto
+network_damage.c	7-8	7-8	confirmada
+network_damage.c	2061-2295	2198-2433	corregida
+network_objects.c	1602-1634	1621-1658	corregida
+network_distributed.c	29	10	corregida
+network_distributed.c	4735-4746	4985-5001	corregida
+network_distributed.c	2181-2299	2211-2348	corregida
+network_distributed.c	2429-2524	2445-2543	corregida
+network_distributed.c	4357-4456	4594-4694	corregida
+network_damage.c	2333-2337	2472-2473	corregida
+network_damage.c	1745-1776	996-1046	corregida
+network_damage.c	2154-2160	2291-2297	corregida
+network_damage.c	2204-2209	2339-2346	corregida
+network_damage.c	1988-2046	2111-2185	corregida
+network_damage.c	2233-2248	2368-2385	corregida
+network_damage.c	110-120	108-115	corregida
+network_damage.c	2173-2175	2309-2314	corregida
+network_objects.c	3008-3058	3040-3181	corregida
+network_distributed.c	2469-2504	2485-2516	corregida
+network_distributed.c	2469	2485	corregida
+network_distributed.c	4247-4290	4455-4523	reubicada
+network_distributed.c	4619-4629	4944-4945	corregida
+network_test.c	568-580	568-580	confirmada
+network_damage.c	2085-2090	2222-2227	corregida
+network_damage.c	2118-2121	2254-2258	corregida
+network_damage.c	2161-2171	2302-2308, 2315-2317	corregida
+network_damage.c	2184-2188	2318-2325	corregida
+network_damage.c	2197-2201	2334-2338	corregida
+network_damage.c	2213-2230	2347-2367	reescrita
+network_objects.c	1783-1790	1802-1813	corregida
+network_objects.c	3166-3175	3262-3271	corregida
+network_distributed.c	4617-4638	4860-4887, 5012-5014	corregida
+network_distributed.c	2850	2866	corregida
+network_distributed.c	3340-3423	3362-3429	corregida
+network_distributed.c	3596-3671	3609-3692, 3876-3879	reescrita
+network_distributed.c	4664	4911-4917	corregida
+network_distributed.c	4368-4369	4605-4606	corregida
+network_distributed.c	4399	4624	corregida
+network_distributed.c	4434-4450	4670-4690	corregida
+network_distributed.c	2251-2272	2272-2288	corregida
+network_distributed.c	2496-2500	2512-2516	corregida
+port/linux/src/xbox_files.c	6-17	6-17	confirmada
+port/linux/src/msvc_crt.c	578-583	576-581	corregida
+network_distributed.c	4184-4228	4348-4398	reescrita
+network_distributed.c	4249-4290	4455-4523	reubicada
+network_distributed.c	4429-4435	4665-4690	corregida
+network_damage.c	1262-1329	1330-1417, 1861-1932	corregida
+network_damage.c	1675-1697	1757-1785	corregida
+network_damage.c	1704-1737	1786-1826	reubicada
+network_damage.c	2179-2180	2315-2317	corregida
+network_votekick.c	(sin lineas)	1015-1023	corregida
