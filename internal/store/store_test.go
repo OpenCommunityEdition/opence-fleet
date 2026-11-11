@@ -161,6 +161,13 @@ func TestOpenWithJournal(t *testing.T) {
 	if strings.ToLower(mode) != "delete" {
 		t.Fatalf("journal mode = %q", mode)
 	}
+	var synchronous int
+	if err := s.DB.QueryRow(`PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		t.Fatal(err)
+	}
+	if synchronous != 2 {
+		t.Fatalf("synchronous = %d, want FULL (2)", synchronous)
+	}
 	s.Close()
 	if _, err := OpenWithJournal(path, "not-a-journal"); err == nil {
 		t.Fatal("invalid journal mode accepted")

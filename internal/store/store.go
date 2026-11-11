@@ -72,7 +72,11 @@ func OpenWithJournal(path, journal string) (*Store, error) {
 		// (one connection: each would be its own empty database)
 		dsn = "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate"
 	} else {
-		dsn += "&_pragma=journal_mode(" + strings.ToUpper(journal) + ")&_pragma=synchronous(NORMAL)"
+		synchronous := "NORMAL"
+		if journal != "wal" {
+			synchronous = "FULL"
+		}
+		dsn += "&_pragma=journal_mode(" + strings.ToUpper(journal) + ")&_pragma=synchronous(" + synchronous + ")"
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
