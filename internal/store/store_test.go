@@ -169,6 +169,11 @@ func TestOpenWithJournal(t *testing.T) {
 		t.Fatalf("synchronous = %d, want FULL (2)", synchronous)
 	}
 	s.Close()
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); !os.IsNotExist(err) {
+			t.Fatalf("rollback journal left %s: %v", suffix, err)
+		}
+	}
 	if _, err := OpenWithJournal(path, "not-a-journal"); err == nil {
 		t.Fatal("invalid journal mode accepted")
 	}
