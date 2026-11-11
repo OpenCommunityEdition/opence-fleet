@@ -35,9 +35,26 @@ type Store struct {
 	Path string
 }
 
-// Open opens (making it, mode 0600) the database and brings its schema up
-// to date.
+// Open opens (making it, mode 0600) the database with the default WAL
+// journal and brings its schema up to date.
 func Open(path string) (*Store, error) {
+	return OpenWithJournal(path, "wal")
+}
+
+// OpenWithJournal opens (making it, mode 0600) the database with a journal
+// mode of wal, delete, truncate or persist and brings its schema up to date.
+// delete and truncate are the safe choices on network filesystems, where WAL
+// locking is not reliable.
+func OpenWithJournal(path, journal string) (*Store, error) {
+	journal = strings.ToLower(strings.TrimSpace(journal))
+	if journal == "" {
+		journal = "wal"
+	}
+	switch journal {
+	case "wal", "delete", "truncate", "persist":
+	default:
+		return nil, fmt.Errorf("journal mode %q: wal, delete, truncate or persist", journal)
+	}
 	memory := path == ":memory:" || strings.HasPrefix(path, "file::memory:")
 	if !memory {
 		if dir := filepath.Dir(path); dir != "" {
@@ -55,7 +72,7 @@ func Open(path string) (*Store, error) {
 		// (one connection: each would be its own empty database)
 		dsn = "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate"
 	} else {
-		dsn += "&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+		dsn += "&_pragma=journal_mode(" + strings.ToUpper(journal) + ")&_pragma=synchronous(NORMAL)"
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {

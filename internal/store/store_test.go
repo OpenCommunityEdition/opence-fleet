@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,5 +145,24 @@ func TestUpdatePolicyNewFleet(t *testing.T) {
 		if got := s.Setting(context.Background(), name); got != "" {
 			t.Errorf("a new fleet has %s %q", name, got)
 		}
+	}
+}
+
+func TestOpenWithJournal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	s, err := OpenWithJournal(path, "delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mode string
+	if err := s.DB.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(mode) != "delete" {
+		t.Fatalf("journal mode = %q", mode)
+	}
+	s.Close()
+	if _, err := OpenWithJournal(path, "not-a-journal"); err == nil {
+		t.Fatal("invalid journal mode accepted")
 	}
 }

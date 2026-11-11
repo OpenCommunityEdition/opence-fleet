@@ -159,7 +159,7 @@ func openFleet(args []string, name string) (*config.ServeConfig, *store.Store, *
 	if err := os.MkdirAll(c.Data, 0o700); err != nil {
 		return nil, nil, nil, err
 	}
-	s, err := store.Open(c.DB)
+	s, err := store.OpenWithJournal(c.DB, c.DBJournal)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -210,7 +210,7 @@ func serve(args []string) error {
 	if err := update.BackupDatabase(c.DB, version, log); err != nil {
 		return err
 	}
-	s, err := store.Open(c.DB)
+	s, err := store.OpenWithJournal(c.DB, c.DBJournal)
 	if err != nil {
 		return fmt.Errorf("the database %s: %w", c.DB, err)
 	}
@@ -471,7 +471,7 @@ func joinToken(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(c.DB)
+	s, err := store.OpenWithJournal(c.DB, c.DBJournal)
 	if err != nil {
 		return err
 	}
@@ -522,7 +522,7 @@ func releaseZip(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(c.DB)
+	s, err := store.OpenWithJournal(c.DB, c.DBJournal)
 	if err != nil {
 		return err
 	}
@@ -583,7 +583,7 @@ func resetPassword(args []string) error {
 	if err != nil {
 		return err
 	}
-	s, err := store.Open(c.DB)
+	s, err := store.OpenWithJournal(c.DB, c.DBJournal)
 	if err != nil {
 		return err
 	}

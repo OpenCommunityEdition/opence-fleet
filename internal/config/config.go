@@ -30,6 +30,7 @@ var Serve = []Option{
 	{Env: "FLEET_PUBLIC_URL", Flag: "public-url", Help: "the fleet's public HTTPS origin (https://fleet.example.org), for the agents' one-liner and links"},
 	{Env: "FLEET_LISTEN", Flag: "listen", Help: "the HTTP listener's address", Default: "127.0.0.1:8070"},
 	{Env: "FLEET_DB", Flag: "db", Help: "the SQLite database file (default: fleet.db in FLEET_DATA)"},
+	{Env: "FLEET_DB_JOURNAL", Flag: "db-journal", Help: "the SQLite journal mode: wal, delete, truncate or persist (use delete or truncate on network filesystems where WAL locking is unsafe)", Default: "wal"},
 	{Env: "FLEET_DATA", Flag: "data", Help: "the folder of the fleet's files: the library's blobs, the releases' zips, fleet.key, bin/", Default: "fleet-data"},
 	{Env: "FLEET_SECRET_KEY", Flag: "secret-key", Help: "the key that encrypts secrets at rest (made if missing; default: fleet.key in FLEET_DATA)"},
 	{Env: "FLEET_TRUSTED_PROXIES", Flag: "trusted-proxies", Help: "reverse proxies (addresses or CIDRs, commas) whose X-Forwarded-* are believed"},
@@ -139,25 +140,25 @@ func Bool(text string) (bool, error) {
 
 // ServeConfig is the control plane's options, read.
 type ServeConfig struct {
-	Name, PublicURL, Listen, DB, Data, SecretKey string
-	TrustedProxies                               []netip.Prefix
-	TLSCert, TLSKey, MastersFile                 string
-	Image, ReleaseRepository                     string
-	ReleaseCheckInterval                         time.Duration
-	EventsDays, SamplesDays                      int
-	LogAddresses, PublicStatus, Metrics          bool
-	InsecureHTTP                                 bool
-	LogLevel, Updates, UpdateURL, UpdateKey      string
-	Timezone                                     *time.Location
-	CAFile                                       string
-	SessionHours, SessionIdleMinutes             int
+	Name, PublicURL, Listen, DB, DBJournal, Data, SecretKey string
+	TrustedProxies                                          []netip.Prefix
+	TLSCert, TLSKey, MastersFile                            string
+	Image, ReleaseRepository                                string
+	ReleaseCheckInterval                                    time.Duration
+	EventsDays, SamplesDays                                 int
+	LogAddresses, PublicStatus, Metrics                     bool
+	InsecureHTTP                                            bool
+	LogLevel, Updates, UpdateURL, UpdateKey                 string
+	Timezone                                                *time.Location
+	CAFile                                                  string
+	SessionHours, SessionIdleMinutes                        int
 }
 
 // LoadServe reads the control plane's options.
 func LoadServe(v Values) (*ServeConfig, error) {
 	c := &ServeConfig{
 		Name: v.Get("FLEET_NAME"), PublicURL: strings.TrimRight(v.Get("FLEET_PUBLIC_URL"), "/"),
-		Listen: v.Get("FLEET_LISTEN"), DB: v.Get("FLEET_DB"), Data: v.Get("FLEET_DATA"),
+		Listen: v.Get("FLEET_LISTEN"), DB: v.Get("FLEET_DB"), DBJournal: strings.ToLower(v.Get("FLEET_DB_JOURNAL")), Data: v.Get("FLEET_DATA"),
 		SecretKey: v.Get("FLEET_SECRET_KEY"), TLSCert: v.Get("FLEET_TLS_CERT"), TLSKey: v.Get("FLEET_TLS_KEY"),
 		MastersFile: v.Get("FLEET_MASTERS_FILE"), Image: strings.TrimRight(v.Get("FLEET_IMAGE"), "/"),
 		ReleaseRepository: v.Get("FLEET_RELEASE_REPOSITORY"), LogLevel: strings.ToLower(v.Get("FLEET_LOG_LEVEL")),
@@ -176,6 +177,13 @@ func LoadServe(v Values) (*ServeConfig, error) {
 	}
 	if c.DB == "" {
 		c.DB = filepath.Join(c.Data, "fleet.db")
+	}
+	switch c.DBJournal {
+	case "":
+		c.DBJournal = "wal"
+	case "wal", "delete", "truncate", "persist":
+	default:
+		errs = append(errs, errors.New("FLEET_DB_JOURNAL: wal, delete, truncate or persist"))
 	}
 	if c.SecretKey == "" {
 		c.SecretKey = filepath.Join(c.Data, "fleet.key")
