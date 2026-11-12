@@ -12,6 +12,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,31 +36,39 @@ type Store struct {
 	Path string
 }
 
-// Open opens (making it, mode 0600) the database with the default WAL
-// journal and brings its schema up to date.
+// Open opens (making it, mode 0600) the database in the journal mode it
+// already has (WAL for a new one) and brings its schema up to date.
 func Open(path string) (*Store, error) {
-	return OpenWithJournal(path, "wal")
+	return OpenWithJournal(path, "")
 }
 
 // OpenWithJournal opens (making it, mode 0600) the database with a journal
 // mode of wal, delete, truncate or persist and brings its schema up to date.
 // delete and truncate are the safe choices on network filesystems, where WAL
-// locking is not reliable.
+// locking is not reliable. An empty mode keeps the one the database has (WAL
+// for a new one): the mode is kept in the file, so a command run without
+// FLEET_DB_JOURNAL (reset-password from a shell beside the service) must not
+// turn a rollback database back to WAL under the running server.
 func OpenWithJournal(path, journal string) (*Store, error) {
 	journal = strings.ToLower(strings.TrimSpace(journal))
-	if journal == "" {
-		journal = "wal"
-	}
 	switch journal {
-	case "wal", "delete", "truncate", "persist":
+	case "", "wal", "delete", "truncate", "persist":
 	default:
 		return nil, fmt.Errorf("journal mode %q: wal, delete, truncate or persist", journal)
 	}
 	memory := path == ":memory:" || strings.HasPrefix(path, "file::memory:")
+	// (the mode to set, if any, and whether the database will be in WAL)
+	setJournal, wal := journal, journal == "wal"
 	if !memory {
 		if dir := filepath.Dir(path); dir != "" {
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return nil, err
+			}
+		}
+		if journal == "" {
+			wal = walHeader(path)
+			if wal {
+				setJournal = "wal"
 			}
 		}
 		// (made by us with 0600 before SQLite makes it with 0644)
@@ -72,11 +81,15 @@ func OpenWithJournal(path, journal string) (*Store, error) {
 		// (one connection: each would be its own empty database)
 		dsn = "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate"
 	} else {
-		synchronous := "NORMAL"
-		if journal != "wal" {
-			synchronous = "FULL"
+		if setJournal != "" {
+			dsn += "&_pragma=journal_mode(" + strings.ToUpper(setJournal) + ")"
 		}
-		dsn += "&_pragma=journal_mode(" + strings.ToUpper(journal) + ")&_pragma=synchronous(" + synchronous + ")"
+		// (NORMAL is durable with WAL alone; a rollback journal needs FULL)
+		synchronous := "FULL"
+		if wal {
+			synchronous = "NORMAL"
+		}
+		dsn += "&_pragma=synchronous(" + synchronous + ")"
 	}
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -93,6 +106,22 @@ func OpenWithJournal(path, journal string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// walHeader reports whether the database at path is in WAL mode, by its
+// header's read and write versions (2: WAL); a database not made yet, or
+// still empty, is to be WAL.
+func walHeader(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	header := make([]byte, 20)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return true
+	}
+	return header[18] == 2 || header[19] == 2
 }
 
 // Close closes the database.

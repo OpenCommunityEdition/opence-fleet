@@ -28,7 +28,7 @@ func BackupDatabase(db, version string, log *slog.Logger) error {
 	}
 	if _, err := os.Stat(db); err == nil {
 		backup := db + ".before-" + version
-		for _, suffix := range []string{"", "-wal"} {
+		for _, suffix := range []string{"", "-wal", "-journal"} {
 			if err := copyFile(db+suffix, backup+suffix); err != nil && !(suffix != "" && os.IsNotExist(err)) {
 				return fmt.Errorf("the database's backup: %w", err)
 			}
@@ -75,5 +75,6 @@ func prune(db string) {
 	for _, b := range list[min(len(list), backups):] {
 		_ = os.Remove(b.path)
 		_ = os.Remove(b.path + "-wal")
+		_ = os.Remove(b.path + "-journal")
 	}
 }

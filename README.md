@@ -174,7 +174,7 @@ overrides it.
 | `FLEET_PUBLIC_URL` | `--public-url` | — | the fleet's public HTTPS origin (https://fleet.example.org), for the agents' one-liner and links |
 | `FLEET_LISTEN` | `--listen` | `127.0.0.1:8070` | the HTTP listener's address |
 | `FLEET_DB` | `--db` | — | the SQLite database file (default: fleet.db in FLEET_DATA) |
-| `FLEET_DB_JOURNAL` | `--db-journal` | `wal` | the SQLite journal mode: `wal`, `delete`, `truncate` or `persist`; use `delete` or `truncate` on network filesystems where WAL locking is unsafe; those modes use `synchronous=FULL` |
+| `FLEET_DB_JOURNAL` | `--db-journal` | — | the SQLite journal mode: `wal`, `delete`, `truncate` or `persist`; use `delete` or `truncate` on network filesystems where WAL locking is unsafe (they still need the filesystem's locks to work), and those modes use `synchronous=FULL` (default: the mode the database has, `wal` for a new one; the database keeps the mode it was given, so the other commands need not repeat it) |
 | `FLEET_DATA` | `--data` | `fleet-data` | the folder of the fleet's files: the library's blobs, the releases' zips, fleet.key, bin/ |
 | `FLEET_SECRET_KEY` | `--secret-key` | — | the key that encrypts secrets at rest (made if missing; default: fleet.key in FLEET_DATA) |
 | `FLEET_TRUSTED_PROXIES` | `--trusted-proxies` | — | reverse proxies (addresses or CIDRs, commas) whose X-Forwarded-* are believed |

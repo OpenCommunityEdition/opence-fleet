@@ -14,6 +14,14 @@ func TestLoadServeJournal(t *testing.T) {
 		}
 		return LoadServe(values)
 	}
+	set := flag.NewFlagSet("serve", flag.ContinueOnError)
+	unset, err := LoadServe(Flags(set, Serve))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unset.DBJournal != "" {
+		t.Fatalf("unset journal = %q, want empty (keep the database's)", unset.DBJournal)
+	}
 	c, err := load("delete")
 	if err != nil {
 		t.Fatal(err)

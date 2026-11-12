@@ -30,7 +30,7 @@ var Serve = []Option{
 	{Env: "FLEET_PUBLIC_URL", Flag: "public-url", Help: "the fleet's public HTTPS origin (https://fleet.example.org), for the agents' one-liner and links"},
 	{Env: "FLEET_LISTEN", Flag: "listen", Help: "the HTTP listener's address", Default: "127.0.0.1:8070"},
 	{Env: "FLEET_DB", Flag: "db", Help: "the SQLite database file (default: fleet.db in FLEET_DATA)"},
-	{Env: "FLEET_DB_JOURNAL", Flag: "db-journal", Help: "the SQLite journal mode: wal, delete, truncate or persist (use delete or truncate on network filesystems where WAL locking is unsafe)", Default: "wal"},
+	{Env: "FLEET_DB_JOURNAL", Flag: "db-journal", Help: "the SQLite journal mode: wal, delete, truncate or persist (use delete or truncate on network filesystems where WAL locking is unsafe; default: the one the database has, wal for a new one)"},
 	{Env: "FLEET_DATA", Flag: "data", Help: "the folder of the fleet's files: the library's blobs, the releases' zips, fleet.key, bin/", Default: "fleet-data"},
 	{Env: "FLEET_SECRET_KEY", Flag: "secret-key", Help: "the key that encrypts secrets at rest (made if missing; default: fleet.key in FLEET_DATA)"},
 	{Env: "FLEET_TRUSTED_PROXIES", Flag: "trusted-proxies", Help: "reverse proxies (addresses or CIDRs, commas) whose X-Forwarded-* are believed"},
@@ -178,12 +178,12 @@ func LoadServe(v Values) (*ServeConfig, error) {
 	if c.DB == "" {
 		c.DB = filepath.Join(c.Data, "fleet.db")
 	}
+	// (unset keeps the database's own mode, which the file remembers: a
+	// command run without the variable leaves the server's choice alone)
 	switch c.DBJournal {
-	case "":
-		c.DBJournal = "wal"
-	case "wal", "delete", "truncate", "persist":
+	case "", "wal", "delete", "truncate", "persist":
 	default:
-		errs = append(errs, errors.New("FLEET_DB_JOURNAL: wal, delete, truncate or persist"))
+		errs = append(errs, errors.New("FLEET_DB_JOURNAL: set it to wal, delete, truncate or persist"))
 	}
 	if c.SecretKey == "" {
 		c.SecretKey = filepath.Join(c.Data, "fleet.key")

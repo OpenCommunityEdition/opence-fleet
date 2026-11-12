@@ -178,3 +178,47 @@ func TestOpenWithJournal(t *testing.T) {
 		t.Fatal("invalid journal mode accepted")
 	}
 }
+
+// A command opening the database without a journal mode (reset-password
+// from a shell, without the service's environment) must leave a rollback
+// database as it is, even while the server has it open.
+func TestOpenKeepsJournal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	server, err := OpenWithJournal(path, "delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	command, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mode string
+	if err := command.DB.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	var synchronous int
+	if err := command.DB.QueryRow(`PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		t.Fatal(err)
+	}
+	command.Close()
+	if strings.ToLower(mode) != "delete" || synchronous != 2 {
+		t.Fatalf("journal mode = %q, synchronous = %d: want delete and FULL (2)", mode, synchronous)
+	}
+	if _, err := os.Stat(path + "-wal"); !os.IsNotExist(err) {
+		t.Fatalf("the command made a WAL: %v", err)
+	}
+
+	fresh := filepath.Join(t.TempDir(), "new.db")
+	s, err := Open(fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.DB.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(mode) != "wal" {
+		t.Fatalf("a new database's journal mode = %q, want wal", mode)
+	}
+}
